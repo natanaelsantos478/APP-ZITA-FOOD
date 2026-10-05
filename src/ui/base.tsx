@@ -141,11 +141,14 @@ export function Vazio({ texto, acao }: { texto: string; acao?: ReactNode }) {
   );
 }
 
-export function Cabecalho({ titulo, acao }: { titulo: string; acao?: ReactNode }) {
+export function Cabecalho({ titulo, acao, logo }: { titulo: string; acao?: ReactNode; logo?: boolean }) {
   return (
     <header className="sticky top-0 z-30 bg-fundo/95 backdrop-blur border-b border-linha px-4 flex items-center justify-between gap-3"
             style={{ paddingTop: 'calc(env(safe-area-inset-top) + 10px)', paddingBottom: 10 }}>
-      <h1 className="titulo text-2xl font-extrabold">{titulo}</h1>
+      <div className="flex items-center gap-2.5 min-w-0">
+        {logo && <img src="./kbritos-logo.webp" alt="K'Britos" className="h-10 w-auto shrink-0" />}
+        <h1 className="titulo text-2xl font-extrabold">{titulo}</h1>
+      </div>
       {acao}
     </header>
   );

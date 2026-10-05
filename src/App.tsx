@@ -5,6 +5,7 @@ import { App as AppNativo } from '@capacitor/app';
 import { Home, ShoppingBag, Package, BookOpen, Wallet } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { confirmarPacoteOk, verificarAtualizacao, type ApkNovo } from './lib/atualizacao';
+import { VERSAO } from './lib/versao';
 import { Download } from 'lucide-react';
 import { Avisos, Carregando, avisar } from './ui/base';
 import Login from './telas/Login';
@@ -30,7 +31,15 @@ export default function App() {
   const [aba, setAba] = useState<Aba>('inicio');
   const [apkNovo, setApkNovo] = useState<ApkNovo | null>(null);
 
-  useEffect(() => { confirmarPacoteOk(); }, []);
+  useEffect(() => {
+    confirmarPacoteOk();
+    // confirma visualmente que a atualização automática chegou
+    try {
+      const vista = localStorage.getItem('versao_vista');
+      if (vista && vista !== VERSAO) setTimeout(() => avisar(`App atualizado para a versão ${VERSAO}`), 600);
+      localStorage.setItem('versao_vista', VERSAO);
+    } catch { /* armazenamento indisponível: só não mostra o aviso */ }
+  }, []);
   // com login feito, confere atualização (e de novo quando o app volta do segundo plano)
   useEffect(() => {
     if (!sessao) return;

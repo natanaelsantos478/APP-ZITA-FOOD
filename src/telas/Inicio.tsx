@@ -23,7 +23,7 @@ export default function Inicio({ irPara }: { irPara: (a: Aba) => void }) {
 
   return (
     <>
-      <Cabecalho titulo="Início" acao={
+      <Cabecalho titulo="Início" logo acao={
         <button onClick={() => irPara('ajustes')} aria-label="Ajustes, planilhas e backup"
                 className="p-2.5 -mr-2 rounded-full active:bg-linha"><Settings size={24} /></button>
       } />

@@ -1,0 +1,6 @@
+{
+  "appId": "br.com.hamburgueria.controle",
+  "appName": "Hamburgueria",
+  "webDir": "dist",
+  "android": { "allowMixedContent": false }
+}

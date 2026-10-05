@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Archivo Variable", system-ui, sans-serif;
+  --color-fundo: #FAF9F6;
+  --color-chapa: #2B2118;
+  --color-chapa-2: #5C4E42;
+  --color-chapa-3: #8F8276;
+  --color-linha: #E7E2DA;
+  --color-mostarda: #F2B705;
+  --color-mostarda-escura: #C99600;
+  --color-ketchup: #C2271D;
+  --color-picles: #3E7B39;
+  --color-kraft: #E8D9BC;
+  --color-kraft-escuro: #CDB78F;
+}
+
+@layer base {
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--color-fundo);
+  color: var(--color-chapa);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+/* números de dinheiro: largos, alinhados */
+.valor {
+  font-variation-settings: "wdth" 125;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.titulo {
+  font-variation-settings: "wdth" 112;
+  letter-spacing: -0.02em;
+}
+
+/* a comanda: papel kraft com picote em cima */
+.comanda {
+  background: var(--color-kraft);
+  background-image:
+    radial-gradient(circle at 8px -2px, var(--color-fundo) 7px, transparent 7.5px);
+  background-size: 16px 12px;
+  background-repeat: repeat-x;
+  background-position: top left;
+}
+.comanda-corpo { background: var(--color-kraft); }
+
+:focus-visible { outline: 3px solid var(--color-mostarda-escura); outline-offset: 2px; }
+
+input, select, textarea, button { font: inherit; color: inherit; }
+}
+
+@layer components {
+.campo {
+  width: 100%;
+  border: 1.5px solid var(--color-linha);
+  background: #fff;
+  border-radius: 10px;
+  padding: 11px 12px;
+  font-size: 16px; /* evita zoom no celular */
+}
+.campo:focus { border-color: var(--color-chapa-2); outline: none; }
+}
+
+.pb-seguro { padding-bottom: calc(env(safe-area-inset-bottom) + 76px); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}

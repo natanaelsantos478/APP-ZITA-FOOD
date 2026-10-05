@@ -1,0 +1,19 @@
+node_modules
+dist
+# segredos — nunca versionar
+.env.cloud
+.env.*.local
+.senha-inicial
+chave/
+*.jks
+*.keystore
+# gerados
+android/app/build
+android/build
+android/.gradle
+android/local.properties
+android/app/src/main/assets/public
+tests/telas
+entrega/*.apk
+supabase/.temp
+supabase/.branches

@@ -17,6 +17,22 @@ App Android (instalado direto, sem Play Store) para controlar a hamburgueria: ve
 | Dinheiro | A pagar (vencidas / 30 dias / depois), extrato do mês, saldos; lançamentos com repetição mensal |
 | Ajustes | Exportar tudo, importar planilhas (com prévia e erro por linha), canais e taxas, categorias, contas, senha |
 
+## Novidades da v1.1
+- **Formas de pagamento** (`formas_pagamento`): taxa %, taxa fixa, dias para receber e conta. Venda com prazo vira **A receber**; canais têm forma padrão (Balcão → Dinheiro, WhatsApp → Pix, iFood → Pago no app, 30 dias).
+- **Custo do entregador** na venda → despesa "Entrega" (sai da gaveta).
+- **Pré-preparo**: insumo `preparado` com `receita_preparo` e `rendimento`; `produzir_preparo(insumo, qtd)` consome a receita e dá entrada ao custo somado; `excluir_producao` desfaz.
+- **Lista de compras**: `lista_compras(dias_cobertura, dias_historico)` (consumo médio × cobertura, respeitando o mínimo), enviar por WhatsApp e abrir a compra preenchida.
+- **Fechamento do dia**: `fechamento_dia(dia)` por forma de pagamento + dinheiro esperado na gaveta; lança a diferença.
+- **Código do produto** (`produtos.codigo`, único) para casar com o `codigo_interno` do ZIA.
+- **Atualização automática** (`app_versoes` + bucket público `app` + `@capgo/capacitor-updater` em modo manual): ao abrir, o app baixa o pacote novo (telas/lógica) e aplica; APK novo aparece como faixa "Nova versão". Se o pacote não abrir em 15 s, volta ao anterior.
+- **`admin_exec(sql)`**: só a chave secreta (service_role) executa — permite aplicar migrations sem o SQL Editor. Para desligar: `drop function public.admin_exec(text);`
+
+### Publicar uma atualização (telas/lógica)
+1. Suba `VERSAO`/`VERSAO_CODIGO` em `src/lib/versao.ts`; rode os testes.
+2. `npx vite build && (cd dist && zip -qr ../pacote-X.Y.Z.zip .)`
+3. Envie o zip para o bucket `app` e insira em `app_versoes` (`tipo='pacote'`, `codigo`, `url` pública, `checksum` sha256).
+APK novo (mudança nativa): suba `versionCode`, gere o APK, envie e insira `tipo='apk'` com `codigo = versionCode`.
+
 ## Modelo de dados (`supabase/migrations/`)
 
 | Tabela | Conteúdo |
@@ -60,6 +76,7 @@ npx supabase start            # Supabase local (Docker)
 npm test                      # testes de leitura de planilha/números
 npm run dev                   # app em http://localhost:5173 (usa .env.development.local → Supabase local)
 node tests/e2e.mjs            # 14 fluxos no navegador (login, compra, ficha, venda, DAS, exportar, importar, cancelar)
+node tests/e2e_v11.mjs        # 12 fluxos da v1.1 (formas, preparo, entregador, fechamento, a receber, lista de compras)
 ```
 
 `.env.development.local` (não versionado):

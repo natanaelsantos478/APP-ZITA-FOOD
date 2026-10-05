@@ -8,16 +8,17 @@ import { reais, lerNumero, hojeISO, dataBR, inicioFimMes, nomeMes } from '../lib
 import { Botao, Cabecalho, Campo, CampoNumero, Carregando, Erro, Folha, Segmento, Vazio, avisar, dadosMudaram, useDados } from '../ui/base';
 
 export default function Dinheiro() {
-  const [aba, setAba] = useState<'pagar' | 'extrato' | 'contas'>('pagar');
+  const [aba, setAba] = useState<'pagar' | 'receber' | 'extrato' | 'contas'>('pagar');
   const [novo, setNovo] = useState(false);
   return (
     <>
       <Cabecalho titulo="Dinheiro" acao={<Botao onClick={() => setNovo(true)}><Plus size={20} />Lançar</Botao>} />
       <main className="max-w-lg mx-auto px-4 pt-4">
         <Segmento rotulo="Ver" valor={aba} onChange={setAba} opcoes={[
-          { valor: 'pagar', texto: 'A pagar' }, { valor: 'extrato', texto: 'Extrato' }, { valor: 'contas', texto: 'Saldos' },
+          { valor: 'pagar', texto: 'A pagar' }, { valor: 'receber', texto: 'A receber' }, { valor: 'extrato', texto: 'Extrato' }, { valor: 'contas', texto: 'Saldos' },
         ]} />
-        {aba === 'pagar' && <APagar />}
+        {aba === 'pagar' && <APagar tipo="despesa" />}
+        {aba === 'receber' && <APagar tipo="receita" />}
         {aba === 'extrato' && <Extrato />}
         {aba === 'contas' && <Saldos />}
       </main>
@@ -26,26 +27,29 @@ export default function Dinheiro() {
   );
 }
 
-function APagar() {
-  const { dados, erro, recarregar } = useDados(() => lancamentos({ abertos: true }));
+function APagar({ tipo }: { tipo: 'despesa' | 'receita' }) {
+  const { dados: todos, erro, recarregar } = useDados(() => lancamentos({ abertos: true }));
+  const dados = todos?.filter(l => l.tipo === tipo) ?? null;
   const [aberto, setAberto] = useState<Lancamento | null>(null);
   if (erro) return <Erro texto={erro} tentar={recarregar} />;
   if (!dados) return <Carregando />;
   const hoje = hojeISO();
   const em30 = hojeISO(new Date(Date.now() + 30 * 86400000));
   const blocos = [
-    { titulo: 'Vencidas', lista: dados.filter(l => l.vencimento < hoje), cor: 'text-ketchup' },
+    { titulo: tipo === 'despesa' ? 'Vencidas' : 'Já deveria ter caído', lista: dados.filter(l => l.vencimento < hoje), cor: 'text-ketchup' },
     { titulo: 'Próximos 30 dias', lista: dados.filter(l => l.vencimento >= hoje && l.vencimento <= em30), cor: '' },
     { titulo: 'Depois', lista: dados.filter(l => l.vencimento > em30), cor: '' },
   ].filter(b => b.lista.length);
   return (
     <>
-      {dados.length === 0 && <Vazio texto="Nada em aberto. Parcelas de compras e contas lançadas sem pagamento aparecem aqui." />}
+      {dados.length === 0 && <Vazio texto={tipo === 'despesa'
+        ? 'Nada em aberto. Parcelas de compras e contas lançadas sem pagamento aparecem aqui.'
+        : 'Nada a receber. Vendas pagas no app ou no cartão de crédito aparecem aqui até o dinheiro cair na conta.'} />}
       {blocos.map(b => (
         <section key={b.titulo} className="mt-4">
           <div className="flex justify-between mb-2">
             <h2 className={`font-semibold ${b.cor || 'text-chapa-2'}`}>{b.titulo}</h2>
-            <span className={`valor font-semibold ${b.cor}`}>{reais(b.lista.reduce((s, l) => s + Number(l.tipo === 'despesa' ? l.valor : -l.valor), 0))}</span>
+            <span className={`valor font-semibold ${b.cor}`}>{reais(b.lista.reduce((s, l) => s + Number(l.valor), 0))}</span>
           </div>
           <ListaLanc lista={b.lista} onAbrir={setAberto} />
         </section>
@@ -165,7 +169,7 @@ function FolhaLancamento({ aberta, onFechar }: { aberta: Lancamento | 'novo' | n
   async function gravar() {
     if (!manual) {
       await pagarLancamento(atual!.id, f.pago ? f.pago_em : null, f.pago ? contaId : atual!.conta_id);
-      avisar(f.pago ? 'Pagamento registrado' : 'Marcado como não pago');
+      avisar(f.pago ? (atual!.tipo === 'receita' ? 'Recebimento registrado' : 'Pagamento registrado') : 'Marcado como em aberto');
       dadosMudaram(); onFechar(); return;
     }
     const valor = lerNumero(f.valor);

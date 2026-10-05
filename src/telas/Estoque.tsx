@@ -1,25 +1,32 @@
 import { useMemo, useState } from 'react';
-import { Plus, Search, Trash2 } from 'lucide-react';
+import { Plus, Search, Trash2, Share2, ChefHat } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Share } from '@capacitor/share';
 import {
   listar, salvar, compras as listarCompras, registrarCompra, excluirCompra, movimentosInsumo, ajustarEstoque, contarEstoque,
-  excluirMovimento, type Insumo, type Compra, type Categoria, type Conta, type Movimento, type NovaCompra,
+  excluirMovimento, receitaDoPreparo, produzirPreparo, listaCompras,
+  type Insumo, type Compra, type Categoria, type Conta, type Movimento, type NovaCompra, type SugestaoCompra,
 } from '../lib/api';
+import { supabase } from '../lib/supabase';
 import { reais, num, lerNumero, hojeISO, dataBR, dataHoraBR, chave } from '../lib/formato';
 import { Botao, Cabecalho, Campo, CampoNumero, Carregando, Erro, Folha, Segmento, Vazio, avisar, dadosMudaram, useDados } from '../ui/base';
 
+let kRec = 0;
 export const UNIDADES = ['un', 'kg', 'g', 'L', 'ml', 'fatia', 'pct', 'cx', 'lata', 'garrafa'];
 export const GRUPOS_INSUMO = ['Ingrediente', 'Embalagem', 'Bebida', 'Limpeza', 'Outro'];
 
 export default function Estoque() {
-  const [aba, setAba] = useState<'insumos' | 'compras'>('insumos');
+  const [aba, setAba] = useState<'insumos' | 'lista' | 'compras'>('insumos');
   return (
     <>
       <Cabecalho titulo="Estoque" />
       <main className="max-w-lg mx-auto px-4 pt-4">
         <Segmento rotulo="Ver" valor={aba} onChange={setAba} opcoes={[
-          { valor: 'insumos', texto: 'O que tenho' }, { valor: 'compras', texto: 'Compras' },
+          { valor: 'insumos', texto: 'O que tenho' }, { valor: 'lista', texto: 'Lista de compras' }, { valor: 'compras', texto: 'Compras' },
         ]} />
-        {aba === 'insumos' ? <ListaInsumos /> : <ListaCompras />}
+        {aba === 'insumos' && <ListaInsumos />}
+        {aba === 'lista' && <ListaDeCompras irParaCompras={() => setAba('compras')} />}
+        {aba === 'compras' && <ListaCompras />}
       </main>
     </>
   );
@@ -65,7 +72,7 @@ function ListaInsumos() {
                 <li key={i.id}>
                   <button onClick={() => setAberto(i)} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left active:bg-fundo">
                     <span className="min-w-0">
-                      <span className={`block font-medium truncate ${i.ativo ? '' : 'line-through text-chapa-3'}`}>{i.nome}</span>
+                      <span className={`block font-medium truncate ${i.ativo ? '' : 'line-through text-chapa-3'}`}>{i.nome}{i.preparado && <span className="ml-2 text-xs font-semibold text-chapa-2 bg-kraft rounded-full px-2 py-0.5 align-middle">preparo</span>}</span>
                       <span className="block text-sm text-chapa-3">{reais(i.custo_medio)} / {i.unidade}</span>
                     </span>
                     <span className={`valor text-lg font-bold shrink-0 ${baixo ? 'text-ketchup' : ''}`}>
@@ -89,25 +96,49 @@ function ListaInsumos() {
 function FolhaInsumo({ insumo, onFechar }: { insumo: Insumo | 'novo' | null; onFechar: () => void }) {
   const novo = insumo === 'novo';
   const atual = insumo && insumo !== 'novo' ? insumo : null;
-  const [form, setForm] = useState({ nome: '', unidade: 'un', grupo: 'Ingrediente', minimo: '', ativo: true });
+  const [form, setForm] = useState({ nome: '', unidade: 'un', grupo: 'Ingrediente', minimo: '', ativo: true, preparado: false, rendimento: '1' });
   const [chaveForm, setChaveForm] = useState<string | null>(null);
-  const [acao, setAcao] = useState<'contar' | 'perda' | 'entrada' | null>(null);
+  const [acao, setAcao] = useState<'contar' | 'perda' | 'entrada' | 'produzir' | null>(null);
+  const [receita, setReceita] = useState<{ k: number; insumo_id: string; quantidade: string }[]>([]);
+  const { dados: todos } = useDados(() => listar<Insumo>('insumos'));
   const [qtd, setQtd] = useState(''); const [custo, setCusto] = useState(''); const [obs, setObs] = useState('');
   const [movs, setMovs] = useState<Movimento[] | null>(null);
 
   const id = novo ? 'novo' : atual?.id ?? null;
   if (id !== chaveForm) {
     setChaveForm(id);
-    setForm(atual ? { nome: atual.nome, unidade: atual.unidade, grupo: atual.grupo, minimo: String(atual.estoque_minimo).replace('.', ','), ativo: atual.ativo }
-                  : { nome: '', unidade: 'un', grupo: 'Ingrediente', minimo: '', ativo: true });
-    setAcao(null); setQtd(''); setCusto(''); setObs(''); setMovs(null);
+    setForm(atual ? { nome: atual.nome, unidade: atual.unidade, grupo: atual.grupo, minimo: String(atual.estoque_minimo).replace('.', ','), ativo: atual.ativo,
+                      preparado: atual.preparado, rendimento: String(atual.rendimento).replace('.', ',') }
+                  : { nome: '', unidade: 'un', grupo: 'Ingrediente', minimo: '', ativo: true, preparado: false, rendimento: '1' });
+    setAcao(null); setQtd(''); setCusto(''); setObs(''); setMovs(null); setReceita([]);
     if (atual) movimentosInsumo(atual.id).then(setMovs).catch(() => setMovs([]));
+    if (atual?.preparado) receitaDoPreparo(atual.id).then(l => setReceita(l.map(x => ({ k: ++kRec, insumo_id: x.insumo_id, quantidade: String(x.quantidade).replace('.', ',') })))).catch(() => setReceita([]));
   }
 
   async function gravar() {
     if (!form.nome.trim()) throw new Error('Dê um nome ao insumo');
-    await salvar('insumos', { id: atual?.id, nome: form.nome.trim(), unidade: form.unidade.trim() || 'un', grupo: form.grupo,
-      estoque_minimo: lerNumero(form.minimo) ?? 0, ativo: form.ativo });
+    const rend = lerNumero(form.rendimento);
+    const linhas = receita.filter(l => l.insumo_id || l.quantidade);
+    if (form.preparado) {
+      if (!rend || rend <= 0) throw new Error('Informe quantas unidades a receita rende');
+      const vistos = new Set<string>();
+      for (const [n, l] of linhas.entries()) {
+        if (!l.insumo_id) throw new Error(`Receita, linha ${n + 1}: escolha o insumo`);
+        if (vistos.has(l.insumo_id)) throw new Error('Um insumo aparece duas vezes na receita');
+        vistos.add(l.insumo_id);
+        const q = lerNumero(l.quantidade); if (!q || q <= 0) throw new Error(`Receita, linha ${n + 1}: quantidade inválida`);
+      }
+    }
+    const idIns = await salvar('insumos', { id: atual?.id, nome: form.nome.trim(), unidade: form.unidade.trim() || 'un', grupo: form.grupo,
+      estoque_minimo: lerNumero(form.minimo) ?? 0, ativo: form.ativo, preparado: form.preparado, rendimento: form.preparado ? rend! : 1 });
+    if (form.preparado || atual?.preparado) {
+      const d = await supabase.from('receita_preparo').delete().eq('preparado_id', idIns);
+      if (d.error) throw new Error(d.error.message);
+      if (form.preparado && linhas.length) {
+        const r = await supabase.from('receita_preparo').insert(linhas.map(l => ({ preparado_id: idIns, insumo_id: l.insumo_id, quantidade: lerNumero(l.quantidade) })));
+        if (r.error) throw new Error(r.error.message);
+      }
+    }
     avisar(novo ? 'Insumo cadastrado' : 'Insumo salvo');
     dadosMudaram(); onFechar();
   }
@@ -118,6 +149,9 @@ function FolhaInsumo({ insumo, onFechar }: { insumo: Insumo | 'novo' | null; onF
     if (acao === 'contar') {
       const dif = await contarEstoque(atual!.id, q);
       avisar(dif === 0 ? 'Estoque conferido: está certo' : `Ajustado: ${dif > 0 ? '+' : ''}${num(dif)} ${atual!.unidade}`);
+    } else if (acao === 'produzir') {
+      await produzirPreparo(atual!.id, q, obs || undefined);
+      avisar(`Produzido: ${num(q)} ${atual!.unidade}`);
     } else if (acao === 'perda') {
       await ajustarEstoque(atual!.id, 'saida', q, 'perda', null, obs || undefined);
       avisar('Perda registrada');
@@ -128,7 +162,10 @@ function FolhaInsumo({ insumo, onFechar }: { insumo: Insumo | 'novo' | null; onF
     dadosMudaram(); onFechar();
   }
 
-  const nomeOrigem: Record<string, string> = { compra: 'Compra', venda: 'Venda', ajuste: 'Ajuste', perda: 'Perda', contagem: 'Contagem', inicial: 'Entrada manual' };
+  const nomeOrigem: Record<string, string> = { compra: 'Compra', venda: 'Venda', ajuste: 'Ajuste', perda: 'Perda', contagem: 'Contagem', inicial: 'Entrada manual', producao: 'Preparo' };
+  const mapa = new Map((todos ?? []).map(i => [i.id, i]));
+  const rendN = lerNumero(form.rendimento) ?? 0;
+  const custoLote = receita.reduce((s, l) => s + (lerNumero(l.quantidade) ?? 0) * Number(mapa.get(l.insumo_id)?.custo_medio ?? 0), 0);
 
   return (
     <Folha aberta={!!insumo} titulo={novo ? 'Novo insumo' : atual?.nome ?? ''} onFechar={onFechar}
@@ -142,6 +179,7 @@ function FolhaInsumo({ insumo, onFechar }: { insumo: Insumo | 'novo' | null; onF
             <span className="valor text-2xl font-extrabold">{num(atual.estoque_atual)} {atual.unidade}</span>
           </div>
           <div className="flex justify-between text-sm text-chapa-2 mt-1"><span>Custo médio</span><span className="valor">{reais(atual.custo_medio)} / {atual.unidade}</span></div>
+          {atual.preparado && <Botao largo onClick={() => setAcao('produzir')} className="mt-3"><ChefHat size={18} />Produzi</Botao>}
           <div className="grid grid-cols-3 gap-2 mt-3">
             <Botao tipo="secundario" onClick={() => setAcao('contar')} className="text-[14px] px-2">Contei</Botao>
             <Botao tipo="secundario" onClick={() => setAcao('perda')} className="text-[14px] px-2">Perdi</Botao>
@@ -154,6 +192,16 @@ function FolhaInsumo({ insumo, onFechar }: { insumo: Insumo | 'novo' | null; onF
         <div>
           {acao === 'contar' && <Campo rotulo={`Quanto tem de verdade (${atual.unidade})?`} dica={`O app diz ${num(atual.estoque_atual)}. A diferença é lançada sozinha.`}>
             <CampoNumero valor={qtd} onChange={setQtd} autoFocus /></Campo>}
+          {acao === 'produzir' && <>
+            <Campo rotulo={`Quanto produziu (${atual.unidade})?`} dica={`A receita rende ${num(atual.rendimento)} ${atual.unidade}. Os ingredientes saem do estoque na proporção.`}>
+              <CampoNumero valor={qtd} onChange={setQtd} autoFocus /></Campo>
+            {(lerNumero(qtd) ?? 0) > 0 && receita.length > 0 && (
+              <ul className="text-sm text-chapa-2 space-y-1 mb-2">
+                {receita.map(l => { const ins = mapa.get(l.insumo_id); const usa = (lerNumero(l.quantidade) ?? 0) * (lerNumero(qtd) ?? 0) / Number(atual.rendimento);
+                  return <li key={l.k}>Usa {num(usa)} {ins?.unidade} de {ins?.nome} (tem {num(ins?.estoque_atual)})</li>; })}
+              </ul>
+            )}
+          </>}
           {acao === 'perda' && <>
             <Campo rotulo={`Quanto perdeu (${atual.unidade})?`} dica="Estragou, caiu, consumo próprio…"><CampoNumero valor={qtd} onChange={setQtd} autoFocus /></Campo>
             <Campo rotulo="Motivo (opcional)"><input className="campo" value={obs} onChange={e => setObs(e.target.value)} /></Campo>
@@ -181,6 +229,34 @@ function FolhaInsumo({ insumo, onFechar }: { insumo: Insumo | 'novo' | null; onF
             </Campo>
           </div>
           <Campo rotulo="Avisar quando ficar abaixo de" dica="Deixe 0 para não avisar"><CampoNumero valor={form.minimo} onChange={v => setForm({ ...form, minimo: v })} placeholder="0" /></Campo>
+          <label className="flex items-center gap-3 py-2">
+            <input type="checkbox" className="w-5 h-5 accent-chapa" checked={form.preparado} onChange={e => setForm({ ...form, preparado: e.target.checked })} />
+            É um pré-preparo (eu produzo: blend, molho da casa…)
+          </label>
+          {form.preparado && (
+            <section className="rounded-2xl border border-linha bg-white p-3 mb-3">
+              <Campo rotulo={`A receita abaixo rende quantos ${form.unidade || 'un'}?`}><CampoNumero valor={form.rendimento} onChange={v => setForm({ ...form, rendimento: v })} /></Campo>
+              <p className="text-sm text-chapa-2 mb-2">Ingredientes de um lote (ex.: 1 kg de carne + 10 g de sal rendem 6 blends).</p>
+              <ul className="space-y-2">
+                {receita.map((l, n) => (
+                  <li key={l.k} className="flex gap-2">
+                    <select className="campo flex-1 min-w-0" aria-label={`Ingrediente ${n + 1} da receita`} value={l.insumo_id}
+                      onChange={e => setReceita(r => r.map(x => x.k === l.k ? { ...x, insumo_id: e.target.value } : x))}>
+                      <option value="">Ingrediente…</option>
+                      {(todos ?? []).filter(i => i.id !== atual?.id && !i.preparado && (i.ativo || i.id === l.insumo_id)).map(i => <option key={i.id} value={i.id}>{i.nome} ({i.unidade})</option>)}
+                    </select>
+                    <div className="w-24 shrink-0"><CampoNumero rotulo={`Quantidade do ingrediente ${n + 1}`} valor={l.quantidade} placeholder={mapa.get(l.insumo_id)?.unidade ?? 'qtd'}
+                      onChange={v => setReceita(r => r.map(x => x.k === l.k ? { ...x, quantidade: v } : x))} /></div>
+                    <button aria-label={`Remover ingrediente ${n + 1}`} className="p-2 text-chapa-3" onClick={() => setReceita(r => r.filter(x => x.k !== l.k))}><Trash2 size={18} /></button>
+                  </li>
+                ))}
+              </ul>
+              <Botao tipo="secundario" largo className="mt-2" onClick={() => setReceita(r => [...r, { k: ++kRec, insumo_id: '', quantidade: '' }])}><Plus size={18} />Adicionar ingrediente</Botao>
+              {receita.length > 0 && rendN > 0 && (
+                <p className="mt-2 text-[15px]">Custo do lote <span className="valor font-semibold">{reais(custoLote)}</span> · por {form.unidade || 'un'} <span className="valor font-bold">{reais(custoLote / rendN)}</span></p>
+              )}
+            </section>
+          )}
           {atual && (
             <label className="flex items-center gap-3 py-2">
               <input type="checkbox" className="w-5 h-5 accent-chapa" checked={form.ativo} onChange={e => setForm({ ...form, ativo: e.target.checked })} />
@@ -201,9 +277,9 @@ function FolhaInsumo({ insumo, onFechar }: { insumo: Insumo | 'novo' | null; onF
                     </span>
                     <span className="flex items-center gap-1 shrink-0">
                       <span className={`valor font-semibold ${m.tipo === 'saida' ? 'text-ketchup' : 'text-picles'}`}>{m.tipo === 'saida' ? '−' : '+'}{num(m.quantidade)}</span>
-                      {['ajuste', 'perda', 'contagem', 'inicial'].includes(m.origem) && (
-                        <button aria-label="Desfazer este ajuste" className="p-2 text-chapa-3"
-                          onClick={async () => { await excluirMovimento(m.id); avisar('Ajuste desfeito'); dadosMudaram(); onFechar(); }}><Trash2 size={16} /></button>
+                      {['ajuste', 'perda', 'contagem', 'inicial', 'producao'].includes(m.origem) && (
+                        <button aria-label={m.origem === 'producao' ? 'Desfazer este preparo inteiro' : 'Desfazer este ajuste'} className="p-2 text-chapa-3"
+                          onClick={async () => { await excluirMovimento(m.id); avisar(m.origem === 'producao' ? 'Preparo desfeito' : 'Ajuste desfeito'); dadosMudaram(); onFechar(); }}><Trash2 size={16} /></button>
                       )}
                     </span>
                   </li>
@@ -254,10 +330,13 @@ let kSeq = 0;
 const itemVazio = (): ItemForm => ({ k: ++kSeq, tipo: 'estoque', insumo_id: '', categoria_id: '', descricao: '', quantidade: '1', valor: '' });
 const br = (n: number | null | undefined) => (n === null || n === undefined ? '' : String(n).replace('.', ','));
 
-export function FolhaCompra({ compra, onFechar }: { compra: Compra | 'nova' | null; onFechar: () => void }) {
+export function FolhaCompra({ compra, onFechar, preenchimento }: {
+  compra: Compra | 'nova' | null; onFechar: () => void;
+  preenchimento?: { insumo_id: string; quantidade: number; valor: number | null }[];
+}) {
   const { dados: cad } = useDados(async () => {
     const [insumos, categorias, contas] = await Promise.all([listar<Insumo>('insumos'), listar<Categoria>('categorias'), listar<Conta>('contas')]);
-    return { insumos: insumos.filter(i => i.ativo), categorias: categorias.filter(c => c.ativo && c.tipo !== 'receita' && c.tipo !== 'estoque'), contas: contas.filter(c => c.ativo) };
+    return { insumos: insumos.filter(i => i.ativo && !i.preparado), categorias: categorias.filter(c => c.ativo && c.tipo !== 'receita' && c.tipo !== 'estoque'), contas: contas.filter(c => c.ativo) };
   });
   const atual = compra && compra !== 'nova' ? compra : null;
   const [chaveForm, setChaveForm] = useState<string | null>(null);
@@ -277,7 +356,9 @@ export function FolhaCompra({ compra, onFechar }: { compra: Compra | 'nova' | nu
         categoria_id: i.categoria_id ?? '', descricao: i.descricao, quantidade: br(i.quantidade), valor: br(i.valor_total) })));
     } else {
       setF({ data: hojeISO(), fornecedor: '', conta_id: '', parcelas: '1', primeiro: '', frete: '', desconto: '', pago: true });
-      setItens([itemVazio()]);
+      setItens(preenchimento?.length
+        ? preenchimento.map(p => ({ ...itemVazio(), insumo_id: p.insumo_id, quantidade: br(p.quantidade), valor: p.valor ? br(Math.round(p.valor * 100) / 100) : '' }))
+        : [itemVazio()]);
     }
   }
   if (cad && !f.conta_id && cad.contas[0]) setF(x => ({ ...x, conta_id: cad.contas.find(c => c.tipo === 'empresa')?.id ?? cad.contas[0].id }));
@@ -291,7 +372,7 @@ export function FolhaCompra({ compra, onFechar }: { compra: Compra | 'nova' | nu
     if (!novoInsumo?.nome.trim()) throw new Error('Dê um nome ao insumo');
     const idNovo = await salvar('insumos', { nome: novoInsumo.nome.trim(), unidade: novoInsumo.unidade || 'un', grupo: novoInsumo.grupo });
     cad!.insumos.push({ id: idNovo, nome: novoInsumo.nome.trim(), unidade: novoInsumo.unidade || 'un', grupo: novoInsumo.grupo,
-      estoque_minimo: 0, estoque_atual: 0, custo_medio: 0, ativo: true });
+      estoque_minimo: 0, estoque_atual: 0, custo_medio: 0, ativo: true, preparado: false, rendimento: 1 });
     mudarItem(novoInsumo.k, { insumo_id: idNovo });
     setNovoInsumo(null);
     dadosMudaram();
@@ -427,5 +508,71 @@ export function FolhaCompra({ compra, onFechar }: { compra: Compra | 'nova' | nu
         </>
       )}
     </Folha>
+  );
+}
+
+// =============================================================================
+// Lista de compras sugerida
+// =============================================================================
+function ListaDeCompras({ irParaCompras }: { irParaCompras: () => void }) {
+  const [dias, setDias] = useState('7');
+  const nDias = Math.max(1, Math.min(60, Math.trunc(lerNumero(dias) ?? 7)));
+  const { dados, erro, recarregar } = useDados(() => listaCompras(nDias), [nDias]);
+  const [marcados, setMarcados] = useState<Record<string, string>>({});
+  const [comprar, setComprar] = useState(false);
+
+  const qtd = (s: SugestaoCompra) => marcados[s.insumo_id] ?? String(s.sugerido).replace('.', ',');
+  const total = (dados ?? []).reduce((t, s) => t + (lerNumero(qtd(s)) ?? 0) * (Number(s.custo_estimado) / Math.max(Number(s.sugerido), 1e-9)), 0);
+
+  async function compartilhar() {
+    if (!dados?.length) return;
+    const texto = 'Lista de compras — hamburgueria\n\n' + dados
+      .filter(s => (lerNumero(qtd(s)) ?? 0) > 0)
+      .map(s => `• ${s.nome}: ${qtd(s)} ${s.unidade}`).join('\n') + `\n\nEstimado: ${reais(total)}`;
+    if (Capacitor.isNativePlatform()) await Share.share({ title: 'Lista de compras', text: texto, dialogTitle: 'Enviar lista' });
+    else if (navigator.share) await navigator.share({ title: 'Lista de compras', text: texto }).catch(() => undefined);
+    else { await navigator.clipboard.writeText(texto); avisar('Lista copiada'); }
+  }
+
+  if (erro) return <Erro texto={erro} tentar={recarregar} />;
+  return (
+    <>
+      <label className="flex items-center gap-2 mt-4 text-[15px]">
+        Comprar para
+        <input className="campo valor w-16 py-2 text-center" inputMode="numeric" value={dias} onChange={e => setDias(e.target.value.replace(/\D/g, ''))} aria-label="Dias de cobertura" />
+        dias de venda
+      </label>
+      <p className="text-sm text-chapa-3 mt-1">Pelo consumo dos últimos 14 dias (vendas, preparos e perdas) e pelo estoque mínimo de cada insumo.</p>
+      {!dados && <Carregando />}
+      {dados?.length === 0 && <Vazio texto="Nada para comprar agora. Defina o estoque mínimo dos insumos para o app avisar antes de acabar." />}
+      {dados && dados.length > 0 && (
+        <>
+          <ul className="mt-3 rounded-2xl bg-white border border-linha divide-y divide-linha">
+            {dados.map(s => (
+              <li key={s.insumo_id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <span className="min-w-0">
+                  <span className="block font-medium">{s.nome}</span>
+                  <span className="block text-sm text-chapa-3">tem {num(s.estoque)} {s.unidade} · {s.motivo}</span>
+                </span>
+                <span className="flex items-center gap-1 shrink-0">
+                  <input className="campo valor w-20 py-2 text-right" inputMode="decimal" aria-label={`Quantidade de ${s.nome}`}
+                    value={qtd(s)} onChange={e => setMarcados(m => ({ ...m, [s.insumo_id]: e.target.value }))} />
+                  <span className="text-sm text-chapa-2 w-10">{s.unidade}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-chapa-2">Estimado pelo último custo: <span className="valor font-bold text-chapa">{reais(total)}</span></p>
+          <div className="grid grid-cols-2 gap-2 mt-3">
+            <Botao tipo="secundario" onClick={compartilhar}><Share2 size={18} />Enviar lista</Botao>
+            <Botao onClick={() => setComprar(true)}>Registrar compra</Botao>
+          </div>
+        </>
+      )}
+      <FolhaCompra compra={comprar ? 'nova' : null} onFechar={() => { setComprar(false); recarregar(); }}
+        preenchimento={(dados ?? []).filter(s => (lerNumero(qtd(s)) ?? 0) > 0).map(s => ({
+          insumo_id: s.insumo_id, quantidade: lerNumero(qtd(s))!, valor: null }))} />
+      <Botao tipo="texto" onClick={irParaCompras} className="mt-2">Ver compras anteriores</Botao>
+    </>
   );
 }

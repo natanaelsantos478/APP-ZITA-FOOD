@@ -49,7 +49,7 @@ export default function Inicio({ irPara }: { irPara: (a: Aba) => void }) {
 
               <dl className="mt-4 rounded-2xl bg-white border border-linha divide-y divide-linha text-[15px]">
                 <Linha nome="Vendido" valor={p.vendas.faturamento} />
-                <Linha nome="Taxas dos apps" valor={-p.vendas.taxas_canal} />
+                <Linha nome="Taxas (apps e maquininha)" valor={-p.vendas.taxas_canal} />
                 <Linha nome="Custo dos ingredientes" valor={-p.vendas.cmv} dica="o que saiu do estoque nas vendas" />
                 <Linha nome="Despesas do período" valor={-p.despesas_operacionais} dica="DAS, gás, juros, entrega…" />
                 {p.outras_receitas > 0 && <Linha nome="Outras receitas" valor={p.outras_receitas} />}
@@ -112,6 +112,12 @@ export default function Inicio({ irPara }: { irPara: (a: Aba) => void }) {
                     <span className={`valor font-semibold ${c.saldo < 0 ? 'text-ketchup' : ''}`}>{reais(c.saldo)}</span>
                   </div>
                 ))}
+                {Number(p.a_receber) > 0 && (
+                  <button onClick={() => irPara('dinheiro')} className="w-full flex justify-between px-4 py-3 text-left">
+                    <span>A receber (iFood, cartão…)</span>
+                    <span className="valor font-semibold text-picles">{reais(p.a_receber)}</span>
+                  </button>
+                )}
                 <button onClick={() => irPara('dinheiro')} className="w-full flex justify-between px-4 py-3 text-left">
                   <span>A pagar nos próximos 30 dias</span>
                   <span className="valor font-semibold">{reais(p.a_pagar_30d)}</span>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Minus, Plus, History, ChevronUp, ChevronDown } from 'lucide-react';
-import { listar, registrarVenda, vendasPeriodo, cancelarVenda, type Canal, type ContaSaldo, type ProdutoCusto, type Venda } from '../lib/api';
+import { listar, registrarVenda, vendasPeriodo, cancelarVenda, fechamentoDia, inserirLancamentos, type Canal, type Categoria, type Conta, type FormaPagamento, type ProdutoCusto, type Venda, type Fechamento } from '../lib/api';
 import { reais, num, lerNumero, hojeISO, dataHoraBR } from '../lib/formato';
 import { Botao, Cabecalho, Campo, CampoNumero, Carregando, Erro, Folha, Segmento, Vazio, avisar, dadosMudaram, useDados } from '../ui/base';
 
@@ -8,10 +8,10 @@ interface Linha { produto: ProdutoCusto; quantidade: number; preco: string }
 
 export default function Vender() {
   const { dados, erro, recarregar } = useDados(async () => {
-    const [produtos, canais, contas] = await Promise.all([
-      listar<ProdutoCusto>('v_produtos_custo'), listar<Canal>('canais'), listar<ContaSaldo>('v_saldos_contas'),
+    const [produtos, canais, formas] = await Promise.all([
+      listar<ProdutoCusto>('v_produtos_custo'), listar<Canal>('canais'), listar<FormaPagamento>('formas_pagamento'),
     ]);
-    return { produtos: produtos.filter(p => p.ativo), canais: canais.filter(c => c.ativo), contas: contas.filter(c => c.ativo && c.tipo === 'empresa') };
+    return { produtos: produtos.filter(p => p.ativo), canais: canais.filter(c => c.ativo), formas: formas.filter(f => f.ativo) };
   });
   const [canalId, setCanalId] = useState('');
   const [itens, setItens] = useState<Linha[]>([]);
@@ -19,15 +19,23 @@ export default function Vender() {
   const [desconto, setDesconto] = useState('');
   const [entrega, setEntrega] = useState('');
   const [cliente, setCliente] = useState('');
-  const [contaId, setContaId] = useState('');
+  const [formaId, setFormaId] = useState('');
+  const [entregador, setEntregador] = useState('');
   const [historico, setHistorico] = useState(false);
 
   useEffect(() => {
     if (dados && !canalId && dados.canais[0]) setCanalId(dados.canais[0].id);
-    if (dados && !contaId && dados.contas[0]) setContaId(dados.contas[0].id);
-  }, [dados, canalId, contaId]);
+  }, [dados, canalId]);
 
   const canal = dados?.canais.find(c => c.id === canalId);
+  // ao trocar de canal, a forma volta para a padrão dele (ex.: iFood → pago no app)
+  useEffect(() => {
+    if (!dados || !canal) return;
+    // sem padrão no canal: a forma sem taxa e sem prazo (dinheiro/Pix), nunca uma com taxa por acaso
+    const semCusto = dados.formas.find(f => Number(f.taxa_percentual) === 0 && Number(f.taxa_fixa) === 0 && f.dias_recebimento === 0);
+    setFormaId(canal.forma_padrao_id && dados.formas.some(f => f.id === canal.forma_padrao_id) ? canal.forma_padrao_id : semCusto?.id ?? dados.formas[0]?.id ?? '');
+  }, [dados, canal]);
+  const forma = dados?.formas.find(f => f.id === formaId);
   const grupos = useMemo(() => {
     const g = new Map<string, ProdutoCusto[]>();
     dados?.produtos.forEach(p => g.set(p.grupo, [...(g.get(p.grupo) ?? []), p]));
@@ -39,8 +47,10 @@ export default function Vender() {
   const taxaEntrega = lerNumero(entrega) ?? 0;
   const taxaCanal = canal ? Math.round(((subtotal - desc) * canal.taxa_percentual / 100 + Number(canal.taxa_fixa)) * 100) / 100 : 0;
   const total = subtotal - desc + taxaEntrega;
+  const taxaForma = forma ? Math.round((total * forma.taxa_percentual / 100 + Number(forma.taxa_fixa)) * 100) / 100 : 0;
+  const custoEntrega = lerNumero(entregador) ?? 0;
   const custo = itens.reduce((s, l) => s + l.quantidade * Number(l.produto.custo), 0);
-  const sobra = total - taxaCanal - custo;
+  const sobra = total - taxaCanal - taxaForma - custo - custoEntrega;
   const qtdItens = itens.reduce((s, l) => s + l.quantidade, 0);
 
   function adicionar(p: ProdutoCusto) {
@@ -53,15 +63,16 @@ export default function Vender() {
   function mudarQtd(id: string, delta: number) {
     setItens(atual => atual.flatMap(l => l.produto.id !== id ? [l] : l.quantidade + delta <= 0 ? [] : [{ ...l, quantidade: l.quantidade + delta }]));
   }
-  function limpar() { setItens([]); setDesconto(''); setEntrega(''); setCliente(''); setAberta(false); }
+  function limpar() { setItens([]); setDesconto(''); setEntrega(''); setCliente(''); setEntregador(''); setAberta(false); }
 
   async function registrar() {
     if (!canal) throw new Error('Escolha o canal da venda');
     if (desc > subtotal) throw new Error('O desconto é maior que o valor dos itens');
     for (const l of itens) if (lerNumero(l.preco) === null) throw new Error(`Preço inválido em ${l.produto.nome}`);
+    if (custoEntrega < 0) throw new Error('Valor do entregador inválido');
     await registrarVenda({
-      canal_id: canal.id, conta_id: contaId || null, cliente: cliente.trim() || undefined,
-      desconto: desc, taxa_entrega: taxaEntrega,
+      canal_id: canal.id, forma_pagamento_id: formaId || null, cliente: cliente.trim() || undefined,
+      desconto: desc, taxa_entrega: taxaEntrega, custo_entrega: custoEntrega,
       itens: itens.map(l => ({ produto_id: l.produto.id, quantidade: l.quantidade, preco_unitario: lerNumero(l.preco)! })),
     });
     avisar(`Venda registrada: ${reais(total)}`);
@@ -143,19 +154,24 @@ export default function Vender() {
                     <Campo rotulo="Taxa de entrega (R$)"><CampoNumero valor={entrega} onChange={setEntrega} placeholder="0,00" /></Campo>
                   </div>
                   <Campo rotulo="Cliente (opcional)"><input className="campo" value={cliente} onChange={e => setCliente(e.target.value)} /></Campo>
-                  {dados && dados.contas.length > 1 && (
-                    <Campo rotulo="Dinheiro entra em">
-                      <select className="campo" value={contaId} onChange={e => setContaId(e.target.value)}>
-                        {dados.contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                      </select>
-                    </Campo>
-                  )}
+                  <Campo rotulo="Paguei ao entregador (R$)" dica="Se você mesmo pagou a entrega. Vira despesa de entrega.">
+                    <CampoNumero valor={entregador} onChange={setEntregador} placeholder="0,00" />
+                  </Campo>
                   <dl className="text-[15px] space-y-1 border-t border-dashed border-kraft-escuro pt-2">
                     {taxaCanal > 0 && <div className="flex justify-between"><dt>Taxa {canal?.nome}</dt><dd className="valor">− {reais(taxaCanal)}</dd></div>}
+                    {taxaForma > 0 && <div className="flex justify-between"><dt>Taxa {forma?.nome}</dt><dd className="valor">− {reais(taxaForma)}</dd></div>}
+                    {custoEntrega > 0 && <div className="flex justify-between"><dt>Entregador</dt><dd className="valor">− {reais(custoEntrega)}</dd></div>}
                     <div className="flex justify-between"><dt>Custo dos ingredientes</dt><dd className="valor">− {reais(custo)}</dd></div>
                     <div className="flex justify-between font-bold"><dt>Sobra desta venda</dt><dd className={`valor ${sobra < 0 ? 'text-ketchup' : 'text-picles'}`}>{reais(sobra)}</dd></div>
                   </dl>
                   <Botao tipo="texto" onClick={limpar} className="mt-1 px-0">Limpar comanda</Botao>
+                </div>
+              )}
+              {dados && dados.formas.length > 0 && (
+                <div className="mt-2">
+                  <Segmento rotulo="Forma de pagamento" valor={formaId} onChange={setFormaId}
+                    opcoes={dados.formas.map(f => ({ valor: f.id, texto: f.nome }))} />
+                  {forma && forma.dias_recebimento > 0 && <p className="text-xs text-chapa-2 mt-0.5">Cai na conta em {forma.dias_recebimento} {forma.dias_recebimento === 1 ? 'dia' : 'dias'}: fica em "A receber".</p>}
                 </div>
               )}
               <Botao largo onClick={registrar} className="mt-2 text-lg">Registrar venda</Botao>
@@ -172,14 +188,33 @@ export default function Vender() {
 function Historico({ aberta, onFechar }: { aberta: boolean; onFechar: () => void }) {
   const [dia, setDia] = useState(hojeISO());
   const [lista, setLista] = useState<Venda[] | null>(null);
+  const [fech, setFech] = useState<Fechamento | null>(null);
   const [cancelar, setCancelar] = useState<Venda | null>(null);
+  const [contei, setContei] = useState('');
+  const [versao, setVersao] = useState(0);
 
   useEffect(() => {
     if (!aberta) return;
-    setLista(null);
+    setLista(null); setFech(null);
     const ini = new Date(dia + 'T00:00:00'); const fim = new Date(dia + 'T23:59:59.999');
     vendasPeriodo(ini.toISOString(), fim.toISOString()).then(setLista).catch(() => setLista([]));
-  }, [aberta, dia, cancelar]);
+    fechamentoDia(dia).then(setFech).catch(() => setFech(null));
+  }, [aberta, dia, versao]);
+
+  const contado = lerNumero(contei);
+  const diferenca = fech && contado !== null ? Math.round((contado - Number(fech.dinheiro_esperado)) * 100) / 100 : null;
+
+  async function lancarDiferenca() {
+    if (!fech || diferenca === null || diferenca === 0) return;
+    const [cats, contas] = await Promise.all([listar<Categoria>('categorias'), listar<Conta>('contas')]);
+    const gaveta = contas.find(c => c.nome === 'Dinheiro (gaveta)');
+    const cat = cats.find(c => c.nome === (diferenca > 0 ? 'Outras receitas' : 'Outras despesas'));
+    if (!gaveta || !cat) throw new Error('Conta "Dinheiro (gaveta)" ou categoria de ajuste não encontrada');
+    await inserirLancamentos([{ tipo: diferenca > 0 ? 'receita' : 'despesa', categoria_id: cat.id,
+      descricao: `Conferência da gaveta ${dia.split('-').reverse().join('/')} (${diferenca > 0 ? 'sobra' : 'falta'})`,
+      valor: Math.abs(diferenca), vencimento: dia, pago_em: dia, conta_id: gaveta.id, parcela: null }]);
+    avisar('Diferença da gaveta lançada'); setContei(''); setVersao(v => v + 1); dadosMudaram();
+  }
 
   const concluidas = lista?.filter(v => v.status === 'concluida') ?? [];
   return (
@@ -192,6 +227,38 @@ function Historico({ aberta, onFechar }: { aberta: boolean; onFechar: () => void
             {concluidas.length} {concluidas.length === 1 ? 'venda' : 'vendas'} · <span className="valor font-semibold text-chapa">{reais(concluidas.reduce((s, v) => s + Number(v.total), 0))}</span>
             {' '}· líquido {reais(concluidas.reduce((s, v) => s + Number(v.liquido), 0))}
           </p>
+
+          {fech && fech.vendas > 0 && (
+            <section aria-labelledby="fech" className="rounded-2xl bg-kraft p-4 mb-4">
+              <h3 id="fech" className="font-bold mb-2">Fechamento do dia</h3>
+              <ul className="space-y-1.5 text-[15px]">
+                {fech.por_forma.map(f => (
+                  <li key={f.forma} className="flex justify-between gap-2">
+                    <span>{f.forma} <span className="text-chapa-2 text-sm">({f.vendas}){f.dias_recebimento > 0 ? ` · recebe em ${f.dias_recebimento}d` : ''}</span></span>
+                    <span className="valor font-semibold">{reais(f.liquido)}</span>
+                  </li>
+                ))}
+              </ul>
+              {Number(fech.entregadores) > 0 && <p className="text-sm text-chapa-2 mt-2">Pago a entregadores: {reais(fech.entregadores)}</p>}
+              <div className="border-t border-kraft-escuro/60 mt-3 pt-3">
+                <div className="flex justify-between"><span>Dinheiro que deve ter na gaveta</span><span className="valor font-bold">{reais(fech.dinheiro_esperado)}</span></div>
+                <p className="text-xs text-chapa-2">Movimento do dia na conta "Dinheiro (gaveta)", sem o troco inicial.</p>
+                <label className="flex items-center gap-2 mt-2 text-[15px]">
+                  Contei
+                  <input className="campo valor py-2" inputMode="decimal" placeholder="0,00" value={contei} onChange={e => setContei(e.target.value)} aria-label="Valor contado na gaveta" />
+                </label>
+                {diferenca !== null && (
+                  diferenca === 0
+                    ? <p className="text-picles font-semibold mt-2">Gaveta certinha.</p>
+                    : <div className="mt-2">
+                        <p className={`font-semibold ${diferenca < 0 ? 'text-ketchup' : 'text-picles'}`}>{diferenca < 0 ? `Faltam ${reais(-diferenca)}` : `Sobram ${reais(diferenca)}`}</p>
+                        <Botao tipo="secundario" className="mt-2" onClick={lancarDiferenca}>Lançar a diferença no caixa</Botao>
+                      </div>
+                )}
+              </div>
+            </section>
+          )}
+
           {lista.length === 0 && <Vazio texto="Nenhuma venda neste dia." />}
           <ul className="space-y-2">
             {lista.map(v => (
@@ -201,7 +268,7 @@ function Historico({ aberta, onFechar }: { aberta: boolean; onFechar: () => void
                   <span className={`valor font-bold ${v.status === 'cancelada' ? 'line-through' : ''}`}>{reais(v.total)}</span>
                 </div>
                 <div className="text-sm text-chapa-3">
-                  {dataHoraBR(v.data)} · {v.venda_itens.map(i => `${num(i.quantidade)}× ${i.produtos?.nome}`).join(', ')}
+                  {dataHoraBR(v.data)}{v.formas_pagamento ? ` · ${v.formas_pagamento.nome}` : ''} · {v.venda_itens.map(i => `${num(i.quantidade)}× ${i.produtos?.nome}`).join(', ')}
                 </div>
                 {v.status === 'cancelada'
                   ? <div className="text-sm text-ketchup mt-1">Cancelada</div>
@@ -214,9 +281,9 @@ function Historico({ aberta, onFechar }: { aberta: boolean; onFechar: () => void
       <Folha aberta={!!cancelar} titulo={`Cancelar a venda #${cancelar?.numero}?`} onFechar={() => setCancelar(null)}
         rodape={<div className="flex gap-2">
           <Botao tipo="secundario" largo onClick={() => setCancelar(null)}>Manter</Botao>
-          <Botao tipo="perigo" largo onClick={async () => { await cancelarVenda(cancelar!.id); avisar('Venda cancelada'); setCancelar(null); dadosMudaram(); }}>Cancelar venda</Botao>
+          <Botao tipo="perigo" largo onClick={async () => { await cancelarVenda(cancelar!.id); avisar('Venda cancelada'); setCancelar(null); setVersao(v => v + 1); dadosMudaram(); }}>Cancelar venda</Botao>
         </div>}>
-        <p className="text-chapa-2">Os ingredientes voltam para o estoque e o valor sai do caixa.</p>
+        <p className="text-chapa-2">Os ingredientes voltam para o estoque e o valor sai do caixa (e o entregador, se houver).</p>
       </Folha>
     </Folha>
   );

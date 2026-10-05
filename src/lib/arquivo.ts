@@ -59,13 +59,13 @@ async function tudo<T>(tabela: string, select = '*', ordem = 'criado_em'): Promi
 
 type Linha = Record<string, unknown>;
 export async function exportarTudo() {
-  const [insumos, produtos, ficha, categorias, contas, canais, compras, vendas, lancs, movs] = await Promise.all([
+  const [insumos, produtos, ficha, categorias, contas, canais, compras, vendas, lancs, movs, formas] = await Promise.all([
     tudo<Linha>('insumos'), tudo<Linha>('produtos'), tudo<Linha>('ficha_tecnica', '*', 'id'), tudo<Linha>('categorias'),
     tudo<Linha>('contas'), tudo<Linha>('canais'), tudo<Linha>('compras', '*, compra_itens(*)'),
-    tudo<Linha>('vendas', '*, venda_itens(*)'), tudo<Linha>('lancamentos'), tudo<Linha>('movimentos'),
+    tudo<Linha>('vendas', '*, venda_itens(*)'), tudo<Linha>('lancamentos'), tudo<Linha>('movimentos'), tudo<Linha>('formas_pagamento'),
   ]);
   const nome = (lista: Linha[]) => { const m = new Map(lista.map(x => [x.id, x.nome as string])); return (id: unknown) => (id ? m.get(id) ?? '' : ''); };
-  const nIns = nome(insumos), nProd = nome(produtos), nCat = nome(categorias), nConta = nome(contas), nCanal = nome(canais);
+  const nIns = nome(insumos), nProd = nome(produtos), nCat = nome(categorias), nConta = nome(contas), nCanal = nome(canais), nForma = nome(formas);
   const n2 = (v: unknown) => Number(v ?? 0);
   const col = (t: TipoImport) => MODELOS[t].colunas.map(c => c.nome);
 
@@ -74,7 +74,7 @@ export async function exportarTudo() {
       linhas: insumos.map(i => ({ 'Nome': i.nome, 'Unidade': i.unidade, 'Grupo': i.grupo, 'Estoque mínimo': n2(i.estoque_minimo),
         'Saldo inicial': '', 'Custo unitário': '', 'Custo médio atual': n2(i.custo_medio), 'Estoque atual': n2(i.estoque_atual) })) },
     { nome: 'Cardápio', colunas: col('cardapio'),
-      linhas: produtos.map(p => ({ 'Nome': p.nome, 'Grupo': p.grupo, 'Preço': n2(p.preco_venda), 'À venda': p.ativo ? 'sim' : 'não' })) },
+      linhas: produtos.map(p => ({ 'Nome': p.nome, 'Grupo': p.grupo, 'Preço': n2(p.preco_venda), 'À venda': p.ativo ? 'sim' : 'não', 'Código': p.codigo ?? '' })) },
     { nome: 'Ficha técnica', colunas: col('ficha'),
       linhas: ficha.map(f => ({ 'Produto': nProd(f.produto_id), 'Insumo': nIns(f.insumo_id), 'Quantidade': n2(f.quantidade) })) },
     { nome: 'Compras', colunas: col('compras'),
@@ -83,11 +83,13 @@ export async function exportarTudo() {
         'Insumo': nIns(i.insumo_id), 'Unidade': '', 'Categoria': nCat(i.categoria_id), 'Quantidade': n2(i.quantidade), 'Valor pago': n2(i.valor_total),
         'Frete': k === 0 ? n2(c.frete) : '', 'Desconto': k === 0 ? n2(c.desconto) : '', 'Parcelas': k === 0 ? c.parcelas : '',
         'Pago com': k === 0 ? nConta(c.conta_id) : '' }))) },
-    { nome: 'Vendas', colunas: [...col('vendas'), 'Status', 'Total', 'Taxa do canal', 'Líquido', 'Custo'],
+    { nome: 'Vendas', colunas: [...col('vendas'), 'Status', 'Total', 'Taxa do canal', 'Taxa do pagamento', 'Entregador', 'Líquido', 'Custo'],
       linhas: vendas.flatMap(v => ((v.venda_itens as Linha[]) ?? []).map((i, k) => ({
         'Venda': v.numero, 'Data': dataBR(new Date(v.data as string).toLocaleDateString('sv-SE')), 'Canal': nCanal(v.canal_id),
         'Produto': nProd(i.produto_id), 'Quantidade': n2(i.quantidade), 'Preço': n2(i.preco_unitario),
         'Desconto': k === 0 ? n2(v.desconto) : '', 'Taxa de entrega': k === 0 ? n2(v.taxa_entrega) : '', 'Cliente': k === 0 ? v.cliente ?? '' : '',
+        'Forma de pagamento': k === 0 ? nForma(v.forma_pagamento_id) : '',
+        'Taxa do pagamento': k === 0 ? n2(v.taxa_pagamento) : '', 'Entregador': k === 0 ? n2(v.custo_entrega) : '',
         'Status': v.status, 'Total': k === 0 ? n2(v.total) : '', 'Taxa do canal': k === 0 ? n2(v.taxa_canal) : '',
         'Líquido': k === 0 ? n2(v.liquido) : '', 'Custo': k === 0 ? n2(v.custo_total) : '' }))) },
     { nome: 'Lançamentos', colunas: [...col('lancamentos'), 'Origem', 'Parcela'],
@@ -99,7 +101,9 @@ export async function exportarTudo() {
         'Quantidade': n2(m.quantidade), 'Custo unitário': n2(m.custo_unitario), 'Origem': m.origem, 'Obs': m.obs ?? '' })) },
     { nome: 'Categorias', colunas: ['Nome', 'Tipo', 'Ativa'], linhas: categorias.map(c => ({ 'Nome': c.nome, 'Tipo': c.tipo, 'Ativa': c.ativo ? 'sim' : 'não' })) },
     { nome: 'Contas', colunas: ['Nome', 'Tipo', 'Saldo inicial'], linhas: contas.map(c => ({ 'Nome': c.nome, 'Tipo': c.tipo, 'Saldo inicial': n2(c.saldo_inicial) })) },
-    { nome: 'Canais', colunas: ['Nome', 'Taxa %', 'Taxa fixa'], linhas: canais.map(c => ({ 'Nome': c.nome, 'Taxa %': n2(c.taxa_percentual), 'Taxa fixa': n2(c.taxa_fixa) })) },
+    { nome: 'Canais', colunas: ['Nome', 'Taxa %', 'Taxa fixa', 'Forma padrão'], linhas: canais.map(c => ({ 'Nome': c.nome, 'Taxa %': n2(c.taxa_percentual), 'Taxa fixa': n2(c.taxa_fixa), 'Forma padrão': nForma(c.forma_padrao_id) })) },
+    { nome: 'Formas de pagamento', colunas: ['Nome', 'Taxa %', 'Taxa fixa', 'Dias para receber', 'Conta'],
+      linhas: formas.map(f => ({ 'Nome': f.nome, 'Taxa %': n2(f.taxa_percentual), 'Taxa fixa': n2(f.taxa_fixa), 'Dias para receber': f.dias_recebimento, 'Conta': nConta(f.conta_id) })) },
   ];
   const hoje = new Date().toLocaleDateString('sv-SE');
   await salvarPlanilha(`hamburgueria-${hoje}.xlsx`, abas);
@@ -128,7 +132,7 @@ export async function executarImportacao(r: Resultado, progresso: (feito: number
     }
     case 'cardapio': {
       for (const [k, p] of r.itens.entries()) {
-        const campos = { nome: p.nome, grupo: p.grupo, preco_venda: p.preco_venda, ativo: p.ativo };
+        const campos = { nome: p.nome, grupo: p.grupo, preco_venda: p.preco_venda, ativo: p.ativo, ...(p.codigo ? { codigo: p.codigo } : {}) };
         if (p.existente_id) await exec(supabase.from('produtos').update(campos).eq('id', p.existente_id));
         else await exec(supabase.from('produtos').insert(campos));
         progresso(k + 1, r.itens.length);
@@ -163,7 +167,7 @@ export async function executarImportacao(r: Resultado, progresso: (feito: number
     case 'vendas': {
       for (const [k, v] of r.itens.entries()) {
         await exec(supabase.rpc('registrar_venda', { p: {
-          data: `${v.data}T12:00:00-03:00`, canal_id: v.canal_id, cliente: v.cliente, desconto: v.desconto, taxa_entrega: v.taxa_entrega, itens: v.itens,
+          data: `${v.data}T12:00:00-03:00`, canal_id: v.canal_id, forma_pagamento_id: v.forma_pagamento_id, cliente: v.cliente, desconto: v.desconto, taxa_entrega: v.taxa_entrega, itens: v.itens,
         } }));
         progresso(k + 1, r.itens.length);
       }

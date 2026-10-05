@@ -4,7 +4,9 @@ import { Capacitor } from '@capacitor/core';
 import { App as AppNativo } from '@capacitor/app';
 import { Home, ShoppingBag, Package, BookOpen, Wallet } from 'lucide-react';
 import { supabase } from './lib/supabase';
-import { Avisos, Carregando } from './ui/base';
+import { confirmarPacoteOk, verificarAtualizacao, type ApkNovo } from './lib/atualizacao';
+import { Download } from 'lucide-react';
+import { Avisos, Carregando, avisar } from './ui/base';
 import Login from './telas/Login';
 import Inicio from './telas/Inicio';
 import Vender from './telas/Vender';
@@ -26,6 +28,18 @@ const ABAS: { id: Exclude<Aba, 'ajustes'>; texto: string; Icone: typeof Home }[]
 export default function App() {
   const [sessao, setSessao] = useState<Session | null | undefined>(undefined);
   const [aba, setAba] = useState<Aba>('inicio');
+  const [apkNovo, setApkNovo] = useState<ApkNovo | null>(null);
+
+  useEffect(() => { confirmarPacoteOk(); }, []);
+  // com login feito, confere atualização (e de novo quando o app volta do segundo plano)
+  useEffect(() => {
+    if (!sessao) return;
+    const conferir = () => { verificarAtualizacao(avisar).then(setApkNovo).catch(() => undefined); };
+    conferir();
+    if (!Capacitor.isNativePlatform()) return;
+    const h = AppNativo.addListener('resume', conferir);
+    return () => { h.then(x => x.remove()); };
+  }, [sessao]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSessao(data.session));
@@ -52,6 +66,12 @@ export default function App() {
   return (
     <div className="min-h-full pb-seguro">
       <Avisos />
+      {apkNovo && (
+        <a href={apkNovo.url} target="_blank" rel="noreferrer"
+           className="flex items-center gap-3 bg-mostarda text-chapa px-4 py-3 font-semibold" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
+          <Download size={20} /> Nova versão {apkNovo.versao} do app: toque para baixar e instalar
+        </a>
+      )}
       {aba === 'inicio' && <Inicio irPara={setAba} />}
       {aba === 'vender' && <Vender />}
       {aba === 'estoque' && <Estoque />}

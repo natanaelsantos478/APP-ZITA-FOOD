@@ -181,7 +181,11 @@ begin
   select estoque_atual into v_n from public.insumos where id = i_coca;
   if v_n <> 11 then raise exception 'FALHA venda: coca ficou %', v_n; end if;
   if (select valor from public.lancamentos where venda_id = v_venda) <> 67.90 then raise exception 'FALHA venda: receita'; end if;
-  if (select pago_em from public.lancamentos where venda_id = v_venda) <> '2026-10-05' then raise exception 'FALHA venda: data local'; end if;
+  -- v1.1: iFood usa a forma "Pago no app" (repasse em 30 dias) → fica a receber
+  if (select vencimento from public.lancamentos where venda_id = v_venda) <> '2026-11-04'
+     or (select pago_em from public.lancamentos where venda_id = v_venda) is not null then
+    raise exception 'FALHA venda: receita do iFood deveria ficar a receber até 04/11';
+  end if;
 
   -- venda balcão com desconto e taxa de entrega
   v_venda2 := public.registrar_venda(jsonb_build_object(

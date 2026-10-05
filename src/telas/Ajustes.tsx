@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
 import { ArrowLeft, Download, Upload, FileSpreadsheet, Plus, LogOut } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { listar, salvar, excluir, type Canal, type Categoria, type Conta, type Insumo, type Produto } from '../lib/api';
+import { VERSAO } from '../lib/versao';
+import { listar, salvar, excluir, type Canal, type Categoria, type Conta, type FormaPagamento, type Insumo, type Produto } from '../lib/api';
 import { MODELOS, interpretar, resumo, type TipoImport, type Resultado, type ErroLinha } from '../lib/planilhas';
 import { lerPlanilha, baixarModelo, exportarTudo, executarImportacao } from '../lib/arquivo';
 import { reais, num, lerNumero, chave } from '../lib/formato';
@@ -17,6 +18,7 @@ export default function Ajustes({ voltar }: { voltar: () => void }) {
       </header>
       <main className="max-w-lg mx-auto px-4 pt-4 pb-8 space-y-8">
         <Planilhas />
+        <Formas />
         <Canais />
         <Categorias />
         <Contas />
@@ -39,10 +41,11 @@ function Planilhas() {
     try {
       const plan = await lerPlanilha(arquivo);
       const aba = plan.abas.find(a => chave(a) === chave(MODELOS[tipo].aba)) ?? plan.abas[0];
-      const [insumos, produtos, categorias, contas, canais] = await Promise.all([
+      const [insumos, produtos, categorias, contas, canais, formas] = await Promise.all([
         listar<Insumo>('insumos'), listar<Produto>('produtos'), listar<Categoria>('categorias'), listar<Conta>('contas'), listar<Canal>('canais'),
+        listar<FormaPagamento>('formas_pagamento'),
       ]);
-      const r = interpretar(tipo, plan.linhas(aba), { insumos, produtos, categorias, contas, canais });
+      const r = interpretar(tipo, plan.linhas(aba), { insumos, produtos, categorias, contas, canais, formas });
       setAnalise({ arquivo: `${arquivo.name} (aba "${aba}")`, ...r });
     } catch (e) { avisarErro(e); }
   }
@@ -145,10 +148,11 @@ function ListaSimples<T extends { id: string; nome: string; ativo: boolean }>({ 
 
 function Canais() {
   const { dados } = useDados(() => listar<Canal>('canais'));
+  const { dados: formas } = useDados(() => listar<FormaPagamento>('formas_pagamento'));
   const [ed, setEd] = useState<Partial<Canal> & { pct?: string; fixa?: string } | null>(null);
   return (
     <>
-      <ListaSimples titulo="Canais de venda" explicacao="Onde você vende e quanto cada um cobra. O iFood (plano Entrega) cobra 23% de comissão mais 3,2% de pagamento online."
+      <ListaSimples titulo="Canais de venda" explicacao="Onde você vende e quanto cada um cobra de comissão. O iFood (plano Entrega) cobra 23% de comissão mais 3,2% de pagamento online."
         itens={dados} detalhe={c => `${num(c.taxa_percentual, 2)}%${Number(c.taxa_fixa) ? ` + ${reais(c.taxa_fixa)}` : ''}`}
         onAbrir={c => setEd({ ...c, pct: String(c.taxa_percentual).replace('.', ','), fixa: String(c.taxa_fixa).replace('.', ',') })}
         onNovo={() => setEd({ nome: '', pct: '0', fixa: '0', ativo: true })} />
@@ -158,7 +162,8 @@ function Canais() {
           if (!ed!.nome?.trim()) throw new Error('Dê um nome ao canal');
           if (pct === null || pct < 0 || pct > 100) throw new Error('Taxa % entre 0 e 100');
           if (fixa === null || fixa < 0) throw new Error('Taxa fixa inválida');
-          await salvar('canais', { id: ed!.id, nome: ed!.nome.trim(), taxa_percentual: pct, taxa_fixa: fixa, ativo: ed!.ativo ?? true });
+          await salvar('canais', { id: ed!.id, nome: ed!.nome.trim(), taxa_percentual: pct, taxa_fixa: fixa, ativo: ed!.ativo ?? true,
+            forma_padrao_id: ed!.forma_padrao_id || null });
           avisar('Canal salvo'); setEd(null); dadosMudaram();
         }}>Salvar</Botao>}>
         {ed && <>
@@ -167,8 +172,59 @@ function Canais() {
             <Campo rotulo="Taxa (%)" dica="Comissão + pagamento"><CampoNumero valor={ed.pct ?? ''} onChange={v => setEd({ ...ed, pct: v })} /></Campo>
             <Campo rotulo="Taxa fixa por pedido (R$)"><CampoNumero valor={ed.fixa ?? ''} onChange={v => setEd({ ...ed, fixa: v })} /></Campo>
           </div>
+          <Campo rotulo="Forma de pagamento padrão" dica='Já vem marcada na comanda. Ex.: iFood → "Pago no app".'>
+            <select className="campo" value={ed.forma_padrao_id ?? ''} onChange={e => setEd({ ...ed, forma_padrao_id: e.target.value || null })}>
+              <option value="">Nenhuma (escolho na hora)</option>
+              {(formas ?? []).filter(f => f.ativo || f.id === ed.forma_padrao_id).map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+            </select>
+          </Campo>
           <Ativo valor={ed.ativo ?? true} onChange={v => setEd({ ...ed, ativo: v })} texto="Em uso" />
           {ed.id && <Excluir onExcluir={async () => { await excluir('canais', ed.id!); avisar('Canal excluído'); setEd(null); dadosMudaram(); }} />}
+        </>}
+      </Folha>
+    </>
+  );
+}
+
+function Formas() {
+  const { dados } = useDados(() => listar<FormaPagamento>('formas_pagamento'));
+  const { dados: contas } = useDados(() => listar<Conta>('contas'));
+  const [ed, setEd] = useState<Partial<FormaPagamento> & { pct?: string; fixa?: string; dias?: string } | null>(null);
+  return (
+    <>
+      <ListaSimples titulo="Formas de pagamento" explicacao="Quanto a maquininha ou o app cobra e em quantos dias o dinheiro cai. Com prazo, a venda fica em Dinheiro → A receber."
+        itens={dados} detalhe={f => `${num(f.taxa_percentual, 2)}%${Number(f.taxa_fixa) ? ` + ${reais(f.taxa_fixa)}` : ''} · ${f.dias_recebimento === 0 ? 'na hora' : `${f.dias_recebimento}d`}`}
+        onAbrir={f => setEd({ ...f, pct: String(f.taxa_percentual).replace('.', ','), fixa: String(f.taxa_fixa).replace('.', ','), dias: String(f.dias_recebimento) })}
+        onNovo={() => setEd({ nome: '', pct: '0', fixa: '0', dias: '0', ativo: true, conta_id: contas?.find(c => c.tipo === 'empresa')?.id ?? null })} />
+      <Folha aberta={!!ed} titulo={ed?.id ? 'Forma de pagamento' : 'Nova forma de pagamento'} onFechar={() => setEd(null)}
+        rodape={<Botao largo onClick={async () => {
+          const pct = lerNumero(ed!.pct); const fixa = lerNumero(ed!.fixa); const dias = lerNumero(ed!.dias);
+          if (!ed!.nome?.trim()) throw new Error('Dê um nome à forma de pagamento');
+          if (pct === null || pct < 0 || pct > 100) throw new Error('Taxa % entre 0 e 100');
+          if (fixa === null || fixa < 0) throw new Error('Taxa fixa inválida');
+          if (dias === null || dias < 0 || dias > 120 || !Number.isInteger(dias)) throw new Error('Dias para receber: número inteiro de 0 a 120');
+          if (!ed!.conta_id) throw new Error('Escolha em qual conta o dinheiro cai');
+          await salvar('formas_pagamento', { id: ed!.id, nome: ed!.nome.trim(), taxa_percentual: pct, taxa_fixa: fixa, dias_recebimento: dias,
+            conta_id: ed!.conta_id, ativo: ed!.ativo ?? true });
+          avisar('Forma de pagamento salva'); setEd(null); dadosMudaram();
+        }}>Salvar</Botao>}>
+        {ed && <>
+          <Campo rotulo="Nome"><input className="campo" value={ed.nome ?? ''} onChange={e => setEd({ ...ed, nome: e.target.value })} placeholder="Ex.: Crédito maquininha Stone" /></Campo>
+          <div className="grid grid-cols-2 gap-3">
+            <Campo rotulo="Taxa (%)"><CampoNumero valor={ed.pct ?? ''} onChange={v => setEd({ ...ed, pct: v })} /></Campo>
+            <Campo rotulo="Taxa fixa (R$)"><CampoNumero valor={ed.fixa ?? ''} onChange={v => setEd({ ...ed, fixa: v })} /></Campo>
+          </div>
+          <Campo rotulo="Dias para o dinheiro cair" dica="0 = na hora (dinheiro, Pix). Crédito costuma ser 30; iFood depende do seu plano de repasse.">
+            <CampoNumero valor={ed.dias ?? ''} onChange={v => setEd({ ...ed, dias: v })} decimal={false} />
+          </Campo>
+          <Campo rotulo="Cai na conta">
+            <select className="campo" value={ed.conta_id ?? ''} onChange={e => setEd({ ...ed, conta_id: e.target.value || null })}>
+              <option value="">Escolha…</option>
+              {(contas ?? []).filter(c => c.tipo === 'empresa' && (c.ativo || c.id === ed.conta_id)).map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+          </Campo>
+          <Ativo valor={ed.ativo ?? true} onChange={v => setEd({ ...ed, ativo: v })} texto="Em uso" />
+          {ed.id && <Excluir onExcluir={async () => { await excluir('formas_pagamento', ed.id!); avisar('Forma excluída'); setEd(null); dadosMudaram(); }} />}
         </>}
       </Folha>
     </>
@@ -269,7 +325,7 @@ function MinhaConta() {
   return (
     <section>
       <h2 className="titulo text-xl font-bold mb-1">Sua conta</h2>
-      <p className="text-chapa-2 mb-3">Entrou como {email}</p>
+      <p className="text-chapa-2 mb-3">Entrou como {email} · versão {VERSAO}</p>
       <div className="grid grid-cols-2 gap-2">
         <Botao tipo="secundario" onClick={() => setSenha('')}>Trocar senha</Botao>
         <Botao tipo="secundario" onClick={async () => { await supabase.auth.signOut(); }}><LogOut size={18} />Sair</Botao>

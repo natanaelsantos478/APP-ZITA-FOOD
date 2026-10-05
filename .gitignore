@@ -17,3 +17,4 @@ tests/telas
 entrega/*.apk
 supabase/.temp
 supabase/.branches
+entrega/*.zip

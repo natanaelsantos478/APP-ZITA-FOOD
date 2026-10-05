@@ -2,5 +2,15 @@
   "appId": "br.com.hamburgueria.controle",
   "appName": "Hamburgueria",
   "webDir": "dist",
-  "android": { "allowMixedContent": false }
+  "android": { "allowMixedContent": false },
+  "plugins": {
+    "CapacitorUpdater": {
+      "autoUpdate": false,
+      "resetWhenUpdate": true,
+      "appReadyTimeout": 15000,
+      "statsUrl": "",
+      "updateUrl": "",
+      "channelUrl": ""
+    }
+  }
 }

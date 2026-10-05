@@ -66,7 +66,7 @@ function FolhaProduto({ produto, canais, onFechar }: { produto: ProdutoCusto | '
   const { dados: insumos } = useDados(() => listar<Insumo>('insumos'));
   const atual = produto && produto !== 'novo' ? produto : null;
   const [chaveForm, setChaveForm] = useState<string | null>(null);
-  const [f, setF] = useState({ nome: '', grupo: 'Lanches', preco: '', ativo: true });
+  const [f, setF] = useState({ nome: '', grupo: 'Lanches', preco: '', ativo: true, codigo: '' });
   const [ficha, setFicha] = useState<LinhaFicha[] | null>(null);
   const [alvo, setAlvo] = useState('30');
   const [confirmar, setConfirmar] = useState(false);
@@ -74,8 +74,8 @@ function FolhaProduto({ produto, canais, onFechar }: { produto: ProdutoCusto | '
   const id = produto === 'novo' ? 'novo' : atual?.id ?? null;
   if (id !== chaveForm) {
     setChaveForm(id); setConfirmar(false);
-    setF(atual ? { nome: atual.nome, grupo: atual.grupo, preco: String(atual.preco_venda).replace('.', ','), ativo: atual.ativo }
-               : { nome: '', grupo: 'Lanches', preco: '', ativo: true });
+    setF(atual ? { nome: atual.nome, grupo: atual.grupo, preco: String(atual.preco_venda).replace('.', ','), ativo: atual.ativo, codigo: atual.codigo ?? '' }
+               : { nome: '', grupo: 'Lanches', preco: '', ativo: true, codigo: '' });
     if (atual) {
       setFicha(null);
       fichaDoProduto(atual.id).then(l => setFicha(l.map(x => ({ k: ++kSeq, insumo_id: x.insumo_id, quantidade: String(x.quantidade).replace('.', ',') }))));
@@ -99,7 +99,8 @@ function FolhaProduto({ produto, canais, onFechar }: { produto: ProdutoCusto | '
       const q = lerNumero(l.quantidade);
       if (!q || q <= 0) throw new Error(`Ficha, linha ${n + 1}: quantidade inválida`);
     }
-    const pid = await salvar('produtos', { id: atual?.id, nome: f.nome.trim(), grupo: f.grupo.trim() || 'Lanches', preco_venda: preco, ativo: f.ativo });
+    const pid = await salvar('produtos', { id: atual?.id, nome: f.nome.trim(), grupo: f.grupo.trim() || 'Lanches', preco_venda: preco, ativo: f.ativo,
+      codigo: f.codigo.trim().toUpperCase() || null });
     // ficha: substitui a lista inteira
     const del = await supabase.from('ficha_tecnica').delete().eq('produto_id', pid);
     if (del.error) throw new Error(del.error.message);
@@ -122,6 +123,9 @@ function FolhaProduto({ produto, canais, onFechar }: { produto: ProdutoCusto | '
         </Campo>
         <Campo rotulo="Preço de venda (R$)"><CampoNumero valor={f.preco} onChange={v => setF({ ...f, preco: v })} placeholder="0,00" /></Campo>
       </div>
+      <Campo rotulo="Código (opcional)" dica="Mesmo código do produto no ZIA, para integrar. Ex.: BRG-01">
+        <input className="campo uppercase" value={f.codigo} onChange={e => setF({ ...f, codigo: e.target.value })} autoCapitalize="characters" />
+      </Campo>
 
       <h3 className="font-semibold mt-3 mb-1">Ficha técnica</h3>
       <p className="text-sm text-chapa-3 mb-3">O que vai em uma unidade, na unidade do insumo. Ex.: carne 0,15 kg, pão 1 un, saco 1 un.</p>

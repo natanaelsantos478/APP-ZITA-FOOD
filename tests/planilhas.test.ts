@@ -44,6 +44,7 @@ const cad: Cadastros = {
                { id: 'c-vendas', nome: 'Vendas', tipo: 'receita' }],
   contas: [{ id: 'ct-bolso', nome: 'Do meu bolso' }, { id: 'ct-emp', nome: 'Conta da empresa' }],
   canais: [{ id: 'ch-ifood', nome: 'iFood' }, { id: 'ch-balcao', nome: 'Balcão' }],
+  formas: [{ id: 'fp-pix', nome: 'Pix' }, { id: 'fp-credito', nome: 'Cartão de crédito' }],
 };
 
 teste('cabeçalhos por sinônimo e sem acento', () => {
@@ -154,6 +155,25 @@ teste('planilha sem colunas obrigatórias', () => {
   const { resultado, erros } = interpretar('vendas', [{ Data: '01/01/2026' }], cad);
   assert.equal(resultado, null);
   assert.match(erros[0].mensagem, /Canal, Produto/);
+});
+
+teste('v1.1: código no cardápio e forma de pagamento nas vendas', () => {
+  const c = interpretar('cardapio', [
+    { Nome: 'Burger', Preço: 40, Código: 'brg-01' },
+    { Nome: 'Combo', Preço: 50, sku: 'BRG-01' },
+  ], cad);
+  if (c.resultado?.tipo !== 'cardapio') throw new Error('tipo');
+  assert.equal(c.resultado.itens[0].codigo, 'BRG-01');
+  assert.deepEqual(c.erros.map(e => e.linha), [3]);
+  const v = interpretar('vendas', [
+    { Data: '05/10/2026', Canal: 'Balcão', Produto: 'Burger Goiabacon', 'Forma de pagamento': 'pix' },
+    { Data: '05/10/2026', Canal: 'Balcão', Produto: 'Burger Goiabacon' },
+    { Data: '05/10/2026', Canal: 'Balcão', Produto: 'Burger Goiabacon', pagamento: 'Fiado' },
+  ], cad);
+  if (v.resultado?.tipo !== 'vendas') throw new Error('tipo');
+  assert.equal(v.resultado.itens[0].forma_pagamento_id, 'fp-pix');
+  assert.equal(v.resultado.itens[1].forma_pagamento_id, null);
+  assert.deepEqual(v.erros.map(e => e.linha), [4]);
 });
 
 console.log(`✓ ${n} testes de planilha passaram`);

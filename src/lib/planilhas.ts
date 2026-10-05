@@ -27,6 +27,7 @@ export const MODELOS: Record<TipoImport, { aba: string; titulo: string; descrica
       { nome: 'Grupo', sinonimos: ['categoria'], ajuda: 'Lanches, Bebidas, Porções…' },
       { nome: 'Preço', obrigatoria: true, sinonimos: ['preco venda', 'preço de venda', 'valor'], ajuda: 'Preço de venda' },
       { nome: 'À venda', sinonimos: ['ativo', 'a venda'], ajuda: 'sim / não (vazio = sim)' },
+      { nome: 'Código', sinonimos: ['codigo', 'sku', 'cod'], ajuda: 'Opcional; o mesmo código do produto no ZIA' },
     ],
   },
   ficha: {
@@ -70,6 +71,7 @@ export const MODELOS: Record<TipoImport, { aba: string; titulo: string; descrica
       { nome: 'Desconto', ajuda: 'Da venda inteira (1ª linha)' },
       { nome: 'Taxa de entrega', sinonimos: ['entrega', 'frete'], ajuda: 'Da venda inteira (1ª linha)' },
       { nome: 'Cliente', ajuda: 'Opcional' },
+      { nome: 'Forma de pagamento', sinonimos: ['pagamento', 'forma'], ajuda: 'Dinheiro, Pix, Cartão de crédito… (vazio = padrão do canal)' },
     ],
   },
   lancamentos: {
@@ -93,13 +95,14 @@ export interface Cadastros {
   categorias: { id: string; nome: string; tipo: string }[];
   contas: { id: string; nome: string }[];
   canais: { id: string; nome: string }[];
+  formas?: { id: string; nome: string }[];
 }
 
 export interface ErroLinha { linha: number; mensagem: string }
 
 export type Resultado =
   | { tipo: 'insumos'; itens: { nome: string; unidade: string; grupo: string; estoque_minimo: number; saldo_inicial: number | null; custo: number | null; existente_id: string | null }[] }
-  | { tipo: 'cardapio'; itens: { nome: string; grupo: string; preco_venda: number; ativo: boolean; existente_id: string | null }[] }
+  | { tipo: 'cardapio'; itens: { nome: string; grupo: string; preco_venda: number; ativo: boolean; codigo: string | null; existente_id: string | null }[] }
   | { tipo: 'ficha'; itens: { produto_id: string; produto: string; linhas: { insumo_id: string; quantidade: number }[] }[] }
   | { tipo: 'compras'; itens: CompraImport[]; novos_insumos: { nome: string; unidade: string }[] }
   | { tipo: 'vendas'; itens: VendaImport[] }
@@ -110,7 +113,7 @@ export interface CompraImport {
   itens: { insumo_id: string | null; insumo_novo: string | null; categoria_id: string | null; descricao: string; quantidade: number; valor_total: number }[];
 }
 export interface VendaImport {
-  linhas: number[]; data: string; canal_id: string; cliente: string | null; desconto: number; taxa_entrega: number;
+  linhas: number[]; data: string; canal_id: string; forma_pagamento_id: string | null; cliente: string | null; desconto: number; taxa_entrega: number;
   itens: { produto_id: string; quantidade: number; preco_unitario?: number }[];
 }
 export interface LancImport {
@@ -164,7 +167,7 @@ export function interpretar(tipo: TipoImport, cruas: Record<string, unknown>[], 
   const erros: ErroLinha[] = [];
   const err = (linha: number, mensagem: string) => erros.push({ linha, mensagem });
   const insumo = porNome(cad.insumos), produto = porNome(cad.produtos), categoria = porNome(cad.categorias),
-        conta = porNome(cad.contas), canal = porNome(cad.canais);
+        conta = porNome(cad.contas), canal = porNome(cad.canais), forma = porNome(cad.formas ?? []);
   const dados = linhas.map((l, i) => ({ l, n: i + 2 })).filter(x => !vazio(x.l));
   if (!dados.length) return { resultado: null, erros: [{ linha: 2, mensagem: 'A planilha não tem linhas preenchidas' }] };
 
@@ -198,7 +201,9 @@ export function interpretar(tipo: TipoImport, cruas: Record<string, unknown>[], 
       if (vistos.has(chave(nome))) { err(n, `"${nome}" repetido na planilha`); continue; }
       vistos.add(chave(nome));
       if (preco === null || preco < 0) { err(n, 'Preço inválido'); continue; }
-      itens.push({ nome, grupo: txt(l['Grupo']) || 'Lanches', preco_venda: preco, ativo: simNao(l['À venda'], true), existente_id: produto(nome)?.id ?? null });
+      const codigo = txt(l['Código']).toUpperCase() || null;
+      if (codigo && itens.some(i => i.codigo === codigo)) { err(n, `Código "${codigo}" repetido na planilha`); continue; }
+      itens.push({ nome, grupo: txt(l['Grupo']) || 'Lanches', preco_venda: preco, ativo: simNao(l['À venda'], true), codigo, existente_id: produto(nome)?.id ?? null });
     }
     return { resultado: { tipo, itens }, erros };
   }
@@ -287,7 +292,10 @@ export function interpretar(tipo: TipoImport, cruas: Record<string, unknown>[], 
         const desconto = txt(l['Desconto']) ? lerNumero(l['Desconto']) : 0;
         const entrega = txt(l['Taxa de entrega']) ? lerNumero(l['Taxa de entrega']) : 0;
         if (desconto === null || desconto < 0 || entrega === null || entrega < 0) { err(n, 'Desconto ou taxa de entrega inválida'); continue; }
-        g = { linhas: [], data, canal_id: c.id, cliente: txt(l['Cliente']) || null, desconto, taxa_entrega: entrega, itens: [] };
+        const nomeForma = txt(l['Forma de pagamento']);
+        const fp = nomeForma ? forma(nomeForma) : undefined;
+        if (nomeForma && !fp) { err(n, `Forma de pagamento "${nomeForma}" não existe`); continue; }
+        g = { linhas: [], data, canal_id: c.id, forma_pagamento_id: fp?.id ?? null, cliente: txt(l['Cliente']) || null, desconto, taxa_entrega: entrega, itens: [] };
         grupos.set(k, g);
       } else if (g.canal_id !== c.id || g.data !== data) {
         err(n, `A venda "${txt(l['Venda'])}" tem data ou canal diferente em outra linha`); continue;

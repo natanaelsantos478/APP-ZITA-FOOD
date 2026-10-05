@@ -5,12 +5,15 @@ export type TipoCategoria = 'receita' | 'despesa' | 'estoque' | 'investimento';
 export interface Categoria { id: string; nome: string; tipo: TipoCategoria; ativo: boolean }
 export interface Conta { id: string; nome: string; tipo: 'empresa' | 'dono'; saldo_inicial: number; ativo: boolean }
 export interface ContaSaldo extends Conta { saldo: number }
-export interface Canal { id: string; nome: string; taxa_percentual: number; taxa_fixa: number; ativo: boolean }
+export interface Canal { id: string; nome: string; taxa_percentual: number; taxa_fixa: number; ativo: boolean; forma_padrao_id: string | null }
+export interface FormaPagamento { id: string; nome: string; taxa_percentual: number; taxa_fixa: number; dias_recebimento: number; conta_id: string | null; ativo: boolean }
 export interface Insumo {
   id: string; nome: string; unidade: string; grupo: string;
   estoque_minimo: number; estoque_atual: number; custo_medio: number; ativo: boolean;
+  preparado: boolean; rendimento: number;
 }
-export interface Produto { id: string; nome: string; grupo: string; preco_venda: number; ativo: boolean }
+export interface ReceitaItem { id: string; preparado_id: string; insumo_id: string; quantidade: number }
+export interface Produto { id: string; nome: string; grupo: string; preco_venda: number; ativo: boolean; codigo: string | null }
 export interface ProdutoCusto extends Produto { custo: number; itens_ficha: number; margem_bruta: number }
 export interface FichaItem { id: string; produto_id: string; insumo_id: string; quantidade: number }
 export interface VendaItem { id: string; produto_id: string; quantidade: number; preco_unitario: number; custo_unitario: number; produtos: { nome: string } | null }
@@ -18,7 +21,8 @@ export interface Venda {
   id: string; numero: number; data: string; canal_id: string; conta_id: string | null; cliente: string | null;
   subtotal: number; desconto: number; taxa_entrega: number; total: number; taxa_canal: number; liquido: number;
   custo_total: number; status: 'concluida' | 'cancelada'; obs: string | null;
-  canais: { nome: string } | null; venda_itens: VendaItem[];
+  forma_pagamento_id: string | null; taxa_pagamento: number; custo_entrega: number;
+  canais: { nome: string } | null; formas_pagamento: { nome: string } | null; venda_itens: VendaItem[];
 }
 export interface CompraItem { id: string; insumo_id: string | null; categoria_id: string | null; descricao: string; quantidade: number; valor_total: number }
 export interface Compra {
@@ -33,14 +37,22 @@ export interface Lancamento {
 }
 export interface Movimento {
   id: string; insumo_id: string; data: string; tipo: 'entrada' | 'saida'; quantidade: number; custo_unitario: number;
-  origem: string; obs: string | null; compra_id: string | null; venda_id: string | null;
+  origem: string; obs: string | null; compra_id: string | null; venda_id: string | null; producao_id: string | null;
+}
+export interface SugestaoCompra {
+  insumo_id: string; nome: string; unidade: string; grupo: string; estoque: number; minimo: number;
+  consumo_dia: number; sugerido: number; custo_estimado: number; motivo: string;
+}
+export interface Fechamento {
+  dia: string; vendas: number; total: number; dinheiro_esperado: number; entregadores: number;
+  por_forma: { forma: string; conta: string | null; vendas: number; total: number; taxas: number; liquido: number; dias_recebimento: number }[];
 }
 export interface Painel {
   periodo: { inicio: string; fim: string };
   vendas: { quantidade: number; faturamento: number; taxas_canal: number; liquido: number; cmv: number; lucro_bruto: number; ticket_medio: number };
   despesas_operacionais: number; despesas_operacionais_pagas: number; compras_estoque: number; outras_receitas: number;
   resultado: number; caixa_empresa: number; contas: { nome: string; tipo: string; saldo: number }[];
-  a_pagar_30d: number; vencidas: number; investimento_total: number; aportado_do_bolso: number;
+  a_pagar_30d: number; vencidas: number; a_receber: number; investimento_total: number; aportado_do_bolso: number;
   resultado_acumulado: number; retorno_percentual: number | null;
   estoque_baixo: { nome: string; unidade: string; estoque: number; minimo: number }[];
   mais_vendidos: { produto: string; quantidade: number; faturamento: number }[];
@@ -53,7 +65,7 @@ function ok<T>(r: { data: T | null; error: { message: string } | null }): T {
   return r.data as T;
 }
 
-export type Tabela = 'categorias' | 'contas' | 'canais' | 'insumos' | 'produtos' | 'ficha_tecnica' | 'lancamentos';
+export type Tabela = 'categorias' | 'contas' | 'canais' | 'insumos' | 'produtos' | 'ficha_tecnica' | 'lancamentos' | 'formas_pagamento' | 'receita_preparo';
 
 export async function listar<T>(tabela: Tabela | 'v_produtos_custo' | 'v_saldos_contas', ordem = 'nome'): Promise<T[]> {
   return ok(await supabase.from(tabela).select('*').order(ordem)) as T[];
@@ -80,7 +92,7 @@ export const painel = async (inicio: string, fim: string) =>
 
 export async function vendasPeriodo(inicioISO: string, fimISO: string): Promise<Venda[]> {
   return ok(await supabase.from('vendas')
-    .select('*, canais(nome), venda_itens(*, produtos(nome))')
+    .select('*, canais(nome), formas_pagamento(nome), venda_itens(*, produtos(nome))')
     .gte('data', inicioISO).lte('data', fimISO)
     .order('data', { ascending: false })) as Venda[];
 }
@@ -121,7 +133,8 @@ export async function fichaCompleta(): Promise<FichaItem[]> {
 
 // ---------- Operações (RPC: o banco garante estoque e financeiro) ----------
 export interface NovaVenda {
-  canal_id: string; conta_id?: string | null; cliente?: string; desconto?: number; taxa_entrega?: number;
+  canal_id: string; forma_pagamento_id?: string | null; conta_id?: string | null; cliente?: string; desconto?: number;
+  taxa_entrega?: number; custo_entrega?: number;
   data?: string; obs?: string; itens: { produto_id: string; quantidade: number; preco_unitario?: number }[];
 }
 export const registrarVenda = async (v: NovaVenda) => ok(await supabase.rpc('registrar_venda', { p: v })) as string;
@@ -149,3 +162,12 @@ export const excluirMovimento = async (id: string) => { ok(await supabase.rpc('e
 export const pagarLancamento = async (id: string, pagoEm: string | null, contaId: string | null) => {
   ok(await supabase.from('lancamentos').update({ pago_em: pagoEm, conta_id: contaId }).eq('id', id));
 };
+
+// ---------- v1.1 ----------
+export const receitaDoPreparo = async (preparadoId: string) =>
+  ok(await supabase.from('receita_preparo').select('*').eq('preparado_id', preparadoId)) as ReceitaItem[];
+export const produzirPreparo = async (insumo: string, quantidade: number, obs?: string) =>
+  ok(await supabase.rpc('produzir_preparo', { p_insumo: insumo, p_quantidade: quantidade, p_obs: obs ?? null })) as string;
+export const listaCompras = async (diasCobertura = 7) =>
+  ok(await supabase.rpc('lista_compras', { p_dias_cobertura: diasCobertura, p_dias_historico: 14 })) as SugestaoCompra[];
+export const fechamentoDia = async (dia: string) => ok(await supabase.rpc('fechamento_dia', { p_dia: dia })) as Fechamento;

@@ -52,7 +52,7 @@ try {
   ok('insumo cadastrado');
 
   // 3. Registrar compra com 2 itens (um insumo novo criado dentro da compra)
-  await page.getByRole('radio', { name: 'Compras' }).click();
+  await page.getByRole('radio', { name: 'Compras', exact: true }).click();
   await page.getByRole('button', { name: 'Registrar compra' }).click();
   d = dialogo('Registrar compra');
   await d.getByLabel('Onde comprou').fill('Costa Atacadão');

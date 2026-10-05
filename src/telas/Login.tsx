@@ -16,15 +16,12 @@ export default function Login() {
   }
 
   return (
-    <main className="min-h-full flex flex-col justify-center px-6 py-10 max-w-sm mx-auto">
-      <div className="mb-10">
-        <div className="w-14 h-14 rounded-2xl bg-mostarda mb-5 flex items-end justify-center overflow-hidden" aria-hidden>
-          <div className="w-10 h-3 rounded-t-full bg-chapa mb-2" />
-        </div>
-        <h1 className="titulo text-3xl font-extrabold leading-tight">Controle da hamburgueria</h1>
-        <p className="text-chapa-2 mt-2">Vendas, estoque e dinheiro no mesmo lugar.</p>
-      </div>
-      <form onSubmit={entrar}>
+    <main className="min-h-full bg-[#5B0318] flex flex-col items-center justify-center px-6 py-10"
+          style={{ paddingTop: 'calc(env(safe-area-inset-top) + 24px)' }}>
+      <img src="./kbritos-logo.webp" alt="K'Britos" className="w-64 max-w-[75vw] h-auto mb-8 drop-shadow-xl" />
+      <form onSubmit={entrar} className="w-full max-w-sm rounded-3xl bg-[#FBF1DC] p-6 shadow-2xl">
+        <h1 className="titulo text-2xl font-extrabold mb-1">Entrar</h1>
+        <p className="text-chapa-2 mb-5">Vendas, estoque e dinheiro da K'Britos.</p>
         <Campo rotulo="E-mail">
           <input className="campo" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} />
         </Campo>

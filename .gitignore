@@ -18,3 +18,5 @@ entrega/*.apk
 supabase/.temp
 supabase/.branches
 entrega/*.zip
+marca/prev-*
+marca/teste-*

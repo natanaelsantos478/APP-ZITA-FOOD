@@ -95,6 +95,8 @@ Num chat do Claude com o conector **Supabase** ligado, o Claude consegue consult
 
 ## Integração com o ZIA (futuro)
 
+Análise completa do código do ZIA e desenho recomendado: [docs/integracao-zia.md](docs/integracao-zia.md).
+
 Os bancos são separados de propósito: o ZIA usa auth própria (JWT custom, multi-tenant) e este app usa o Supabase Auth nativo, com um dono só. Se for integrar:
 - Faça **sincronização por API** (ex.: Edge Function no ZIA que lê `painel()`/vendas daqui com um usuário técnico em `membros`), em vez de juntar os bancos.
 - Nunca coloque chave secreta do ZIA dentro deste APK nem a chave secreta daqui dentro do ZIA no front.

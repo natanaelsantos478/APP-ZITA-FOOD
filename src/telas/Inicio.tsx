@@ -52,6 +52,7 @@ export default function Inicio({ irPara }: { irPara: (a: Aba) => void }) {
                 <Linha nome="Taxas (apps e maquininha)" valor={-p.vendas.taxas_canal} />
                 <Linha nome="Custo dos ingredientes" valor={-p.vendas.cmv} dica="o que saiu do estoque nas vendas" />
                 <Linha nome="Despesas do período" valor={-p.despesas_operacionais} dica="DAS, gás, juros, entrega…" />
+                {Number(p.perdas_estoque) !== 0 && <Linha nome="Perdas de estoque" valor={-p.perdas_estoque} dica="perdas e diferenças de contagem" />}
                 {p.outras_receitas > 0 && <Linha nome="Outras receitas" valor={p.outras_receitas} />}
                 <Linha nome="Resultado" valor={p.resultado} forte />
               </dl>

@@ -50,7 +50,7 @@ export interface Fechamento {
 export interface Painel {
   periodo: { inicio: string; fim: string };
   vendas: { quantidade: number; faturamento: number; taxas_canal: number; liquido: number; cmv: number; lucro_bruto: number; ticket_medio: number };
-  despesas_operacionais: number; despesas_operacionais_pagas: number; compras_estoque: number; outras_receitas: number;
+  despesas_operacionais: number; despesas_operacionais_pagas: number; perdas_estoque: number; compras_estoque: number; outras_receitas: number;
   resultado: number; caixa_empresa: number; contas: { nome: string; tipo: string; saldo: number }[];
   a_pagar_30d: number; vencidas: number; a_receber: number; investimento_total: number; aportado_do_bolso: number;
   resultado_acumulado: number; retorno_percentual: number | null;

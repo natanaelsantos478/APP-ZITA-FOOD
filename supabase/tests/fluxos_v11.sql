@@ -132,6 +132,18 @@ begin
   select sugerido into v_n from public.lista_compras(7, 14) l where l.insumo_id = i_carne;
   if coalesce(v_n, 0) <= 0 then raise exception 'FALHA lista: carne zerada com consumo não foi sugerida'; end if;
 
+  -- ---------- perdas entram no resultado ----------
+  r := public.painel(current_date - 30, current_date + 1);
+  v_n := (r->>'resultado')::numeric;
+  perform public.ajustar_estoque(i_pao, 'saida', 2, 'perda', null, 'mofou');      -- 2 pães a R$ 3
+  r := public.painel(current_date - 30, current_date + 1);
+  if (r->>'perdas_estoque')::numeric <> 6 or (r->>'resultado')::numeric <> v_n - 6 then
+    raise exception 'FALHA perdas: perdas % resultado % (antes %)', r->>'perdas_estoque', r->>'resultado', v_n;
+  end if;
+  perform public.contar_estoque(i_pao, (select estoque_atual from public.insumos where id = i_pao) + 1);   -- achou 1 a mais
+  r := public.painel(current_date - 30, current_date + 1);
+  if (r->>'perdas_estoque')::numeric <> 3 then raise exception 'FALHA sobra na contagem: %', r->>'perdas_estoque'; end if;
+
   -- ---------- segurança ----------
   begin
     perform public.admin_exec('select 1');
